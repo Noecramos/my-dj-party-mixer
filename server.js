@@ -11,7 +11,21 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res, filePath) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
+
+// Serve SVG favicon on /favicon.ico so DevTools console never shows a 404
+app.get('/favicon.ico', (req, res) => {
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.send(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#0b0d14"/><circle cx="32" cy="32" r="22" fill="none" stroke="#00f0ff" stroke-width="4"/><circle cx="32" cy="32" r="7" fill="#ff2a85"/></svg>`);
+});
 
 // Temporary disk cache for YouTube audio files so Android tablets can stream with HTTP Range requests & zero RAM crash
 const AUDIO_CACHE_DIR = path.join(os.tmpdir(), 'mydj-audio-cache');

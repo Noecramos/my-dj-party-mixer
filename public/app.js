@@ -4,10 +4,19 @@
  * Offline IndexedDB Party Vault + YouTube Cloud Streamer + Continuous Auto-Mix
  */
 
-// 1. Register Service Worker for Standalone Offline Tablet Mode
+// 1. Force-update Service Worker & purge any stale browser caches so the latest DJ engine always runs!
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  window.addEventListener('load', async () => {
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) {
+        await r.update();
+      }
+    } catch (_) {}
   });
 }
 
