@@ -243,6 +243,9 @@ class DJDeck {
     this.waveWrap = document.getElementById(`wave-wrap-${s}`);
     this.waveCanvas = document.getElementById(`wave-${s}`);
     this.playheadEl = document.getElementById(`playhead-${s}`);
+    this.dlOverlayEl = document.getElementById(`dl-overlay-${s}`);
+    this.dlBarEl = document.getElementById(`dl-bar-${s}`);
+    this.dlTextEl = document.getElementById(`dl-text-${s}`);
     this.jogEl = document.getElementById(`jog-${s}`);
     this.jogRotorEl = document.getElementById(`jog-rotor-${s}`);
     this.jogResetBtn = document.getElementById(`jog-reset-${s}`);
@@ -467,13 +470,26 @@ class DJDeck {
     filterNode.gain.value = this.kills[band] ? -42 : this.savedEq[band];
   }
 
+  setDownloadProgress(pct, label) {
+    if (!this.dlOverlayEl) return;
+    if (pct === null) {
+      this.dlOverlayEl.hidden = true;
+      return;
+    }
+    this.dlOverlayEl.hidden = false;
+    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+    this.dlBarEl.style.inlineSize = `${clamped}%`;
+    this.dlTextEl.textContent = label || `DOWNLOADING TO RAM: ${clamped}%`;
+  }
+
   async loadBlob(blob, title, subtitle) {
     this.connectAudioGraph();
+    this.setDownloadProgress(null);
     if (this.currentObjectUrl) URL.revokeObjectURL(this.currentObjectUrl);
     this.currentObjectUrl = URL.createObjectURL(blob);
     this.audio.src = this.currentObjectUrl;
     this.titleEl.textContent = title;
-    this.subEl.textContent = subtitle || 'Loaded in Deck';
+    this.subEl.textContent = subtitle || '100% Buffered in RAM (Zero Stutter)';
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
     this.cuePoint = 0;
     this.cueBtn.textContent = '⏺ CUE';
@@ -993,33 +1009,106 @@ function renderYouTubeResults(items) {
       </div>
     `;
     const [btnA, btnB, btnSave] = row.querySelectorAll('button');
-    btnA.addEventListener('click', () => loadYouTubeTrackToDeck(item, deckA));
-    btnB.addEventListener('click', () => loadYouTubeTrackToDeck(item, deckB));
+    btnA.addEventListener('click', () => loadYouTubeTrackToDeck(item, deckA, btnA));
+    btnB.addEventListener('click', () => loadYouTubeTrackToDeck(item, deckB, btnB));
     btnSave.addEventListener('click', () => saveYouTubeTrackOffline(item, btnSave));
     ytResultsList.appendChild(row);
   });
 }
 
 async function resolveYouTubeProxyUrl(item) {
+  const vidParam = item.videoId ? `&v=${encodeURIComponent(item.videoId)}` : '';
   if (item.streamUrl) {
-    return `/api/youtube/proxy?url=${encodeURIComponent(item.streamUrl)}`;
+    return `/api/youtube/proxy?url=${encodeURIComponent(item.streamUrl)}${vidParam}`;
   }
   const res = await fetch(`/api/youtube/info?v=${encodeURIComponent(item.videoId)}`);
   const data = await res.json();
   if (!res.ok || !data.streamUrl) {
+    if (item.videoId) {
+      return `/api/youtube/proxy?v=${encodeURIComponent(item.videoId)}`;
+    }
     throw new Error(data.error || 'Could not extract audio stream for this video');
   }
-  return `/api/youtube/proxy?url=${encodeURIComponent(data.streamUrl)}`;
+  return `/api/youtube/proxy?url=${encodeURIComponent(data.streamUrl)}${vidParam}`;
 }
 
-async function loadYouTubeTrackToDeck(item, deck) {
+// Download stream with real-time 0% -> 100% progress callback so playback NEVER cuts or buffers mid-song!
+async function fetchAudioBlobWithProgress(url, onProgress) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Download failed (HTTP ${resp.status})`);
+
+  const totalBytes = parseInt(resp.headers.get('content-length') || '0', 10);
+  if (!resp.body) {
+    const blob = await resp.blob();
+    onProgress(100, blob.size, blob.size);
+    return blob;
+  }
+
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let receivedBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    receivedBytes += value.length;
+    if (totalBytes > 0) {
+      const pct = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
+      onProgress(pct, receivedBytes, totalBytes);
+    } else {
+      // Estimate based on ~3.5MB average song size if Content-Length header is omitted
+      const estPct = Math.min(95, Math.round((receivedBytes / (3.5 * 1024 * 1024)) * 100));
+      onProgress(estPct, receivedBytes, 0);
+    }
+  }
+
+  onProgress(100, receivedBytes, totalBytes);
+  const mime = resp.headers.get('content-type') || 'audio/mp4';
+  return new Blob(chunks, { type: mime });
+}
+
+async function loadYouTubeTrackToDeck(item, deck, btnEl) {
+  const origBtnText = btnEl ? btnEl.textContent : '';
   try {
-    setYtStatus(`Loading "${item.title}" into Deck ${deck.id.toUpperCase()} with 3-Band EQ...`);
+    if (btnEl) btnEl.disabled = true;
+    deck.titleEl.textContent = item.title;
+    deck.subEl.textContent = 'Downloading 100% to RAM for zero-cut playback...';
+    deck.setDownloadProgress(2, 'RESOLVING STREAM... 2%');
+    setYtStatus(`Downloading "${item.title}" into Deck ${deck.id.toUpperCase()} RAM (0%)...`);
+
     const proxyUrl = await resolveYouTubeProxyUrl(item);
-    await deck.loadStreamUrl(proxyUrl, item.title, `YouTube • ${item.artist}`);
-    setYtStatus(`Loaded "${item.title}" on Deck ${deck.id.toUpperCase()}!`);
-    crateModal.hidden = true;
+
+    const blob = await fetchAudioBlobWithProgress(proxyUrl, (pct, received) => {
+      const mb = (received / (1024 * 1024)).toFixed(1);
+      deck.setDownloadProgress(pct, `DOWNLOADING ${pct}% (${mb} MB)`);
+      if (btnEl) btnEl.textContent = `⏳ ${pct}%`;
+      setYtStatus(`Downloading "${item.title}" to Deck ${deck.id.toUpperCase()}: ${pct}% (${mb} MB)`);
+    });
+
+    // Automatically save to Offline Party Vault as well so you never have to re-download it!
+    await saveTrackToVault({
+      id: `yt-${item.videoId || Date.now()}`,
+      title: item.title,
+      artist: `${item.artist} (100% Offline Ready)`,
+      blob,
+      addedAt: Date.now()
+    });
+    await refreshOfflineVaultUI();
+
+    await deck.loadBlob(blob, item.title, `100% Buffered Offline • ${item.artist}`);
+    setYtStatus(`✅ 100% Downloaded "${item.title}" to Deck ${deck.id.toUpperCase()} & saved to Offline Vault! Zero cutting guaranteed.`);
+    if (btnEl) {
+      btnEl.textContent = '✅ 100%';
+      btnEl.disabled = false;
+    }
+    setTimeout(() => { crateModal.hidden = true; }, 450);
   } catch (err) {
+    deck.setDownloadProgress(null);
+    if (btnEl) {
+      btnEl.textContent = origBtnText;
+      btnEl.disabled = false;
+    }
     setYtStatus(err.message, true);
   }
 }
@@ -1028,21 +1117,25 @@ async function saveYouTubeTrackOffline(item, btnEl) {
   const origText = btnEl.textContent;
   try {
     btnEl.disabled = true;
-    btnEl.textContent = '⏳ SAVING...';
-    setYtStatus(`Downloading "${item.title}" into Tablet Offline Party Vault...`);
+    btnEl.textContent = '⏳ 0%';
+    setYtStatus(`Downloading "${item.title}" (0%)...`);
     const proxyUrl = await resolveYouTubeProxyUrl(item);
-    const resp = await fetch(proxyUrl);
-    if (!resp.ok) throw new Error('Download stream failed');
-    const blob = await resp.blob();
+
+    const blob = await fetchAudioBlobWithProgress(proxyUrl, (pct, received) => {
+      const mb = (received / (1024 * 1024)).toFixed(1);
+      btnEl.textContent = `⏳ ${pct}%`;
+      setYtStatus(`Saving "${item.title}" to Tablet Offline Vault: ${pct}% (${mb} MB)...`);
+    });
+
     await saveTrackToVault({
       id: `yt-${item.videoId || Date.now()}`,
       title: item.title,
-      artist: `${item.artist} (Saved from YouTube)`,
+      artist: `${item.artist} (100% Offline Ready)`,
       blob,
       addedAt: Date.now()
     });
-    btnEl.textContent = '✅ SAVED';
-    setYtStatus(`Saved "${item.title}" to your Tablet Offline Vault! Works anywhere without PC or Wi-Fi.`);
+    btnEl.textContent = '✅ 100% SAVED';
+    setYtStatus(`✅ 100% Saved "${item.title}" to your Tablet Offline Vault! Zero cutting guaranteed.`);
     await refreshOfflineVaultUI();
   } catch (err) {
     btnEl.textContent = origText;

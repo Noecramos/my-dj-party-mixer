@@ -225,7 +225,37 @@ app.get('/api/youtube/info', async (req, res) => {
 // Proxy external audio stream with full CORS headers so Web Audio API can apply Bass/Mid/Treble EQ
 app.get('/api/youtube/proxy', (req, res) => {
   const targetUrl = req.query.url;
-  if (!targetUrl) return res.status(400).send('Missing url');
+  const videoId = extractVideoId(req.query.v);
+
+  // If videoId is provided (or URL fails), we can stream directly via yt-dlp to stdout with zero throttling!
+  const streamViaYtDlp = (vid) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'audio/mp4');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const proc = spawn('yt-dlp', [
+      '-f', 'bestaudio[ext=m4a]/bestaudio',
+      '--no-part',
+      '--no-playlist',
+      '--no-warnings',
+      '-o', '-',
+      `https://www.youtube.com/watch?v=${vid}`
+    ]);
+
+    proc.stdout.pipe(res);
+    req.on('close', () => {
+      try { proc.kill('SIGKILL'); } catch (_) {}
+    });
+    proc.on('error', () => {
+      if (!res.headersSent) res.status(502).send('yt-dlp stream error');
+    });
+  };
+
+  if (videoId && !targetUrl) {
+    return streamViaYtDlp(videoId);
+  }
+
+  if (!targetUrl) return res.status(400).send('Missing url or v');
 
   const client = targetUrl.startsWith('https') ? https : http;
   const headers = {
@@ -236,6 +266,9 @@ app.get('/api/youtube/proxy', (req, res) => {
   }
 
   client.get(targetUrl, { headers }, (upstream) => {
+    if ((upstream.statusCode === 403 || upstream.statusCode >= 500) && videoId) {
+      return streamViaYtDlp(videoId);
+    }
     res.status(upstream.statusCode || 200);
     res.setHeader('Access-Control-Allow-Origin', '*');
     if (upstream.headers['content-type']) res.setHeader('Content-Type', upstream.headers['content-type']);
@@ -244,6 +277,7 @@ app.get('/api/youtube/proxy', (req, res) => {
     res.setHeader('Accept-Ranges', 'bytes');
     upstream.pipe(res);
   }).on('error', (err) => {
+    if (videoId) return streamViaYtDlp(videoId);
     res.status(502).send('Proxy error: ' + err.message);
   });
 });
