@@ -70,13 +70,16 @@
       <!-- Jog Wheel + Pitch/Tempo Slider -->
       <div class="turntable-row">
         <div class="jog-container">
-          <div class="jog-wheel" id="jog-a" tabindex="0" aria-label="Deck A Jog Wheel - Drag to scratch or nudge beat">
-            <div class="jog-ring"></div>
-            <div class="jog-marker"></div>
-            <div class="jog-center">
+          <div class="jog-wheel" id="jog-a" tabindex="0" aria-label="Deck A Jog Wheel - Drag outer ring to scratch or nudge beat">
+            <div class="jog-rotor" id="jog-rotor-a">
+              <div class="jog-ring"></div>
+              <div class="jog-marker"></div>
+            </div>
+            <button type="button" class="jog-center" id="jog-reset-a" title="Tap to reset Deck A platter &amp; tempo to 100.0% center">
               <span class="jog-deck-label">DECK A</span>
               <span id="bpm-a" class="jog-bpm">100.0%</span>
-            </div>
+              <span class="jog-reset-hint">TAP RESET</span>
+            </button>
           </div>
         </div>
 
@@ -238,13 +241,16 @@
       <!-- Jog Wheel + Pitch/Tempo Slider -->
       <div class="turntable-row">
         <div class="jog-container">
-          <div class="jog-wheel jog-b" id="jog-b" tabindex="0" aria-label="Deck B Jog Wheel - Drag to scratch or nudge beat">
-            <div class="jog-ring"></div>
-            <div class="jog-marker"></div>
-            <div class="jog-center">
+          <div class="jog-wheel jog-b" id="jog-b" tabindex="0" aria-label="Deck B Jog Wheel - Drag outer ring to scratch or nudge beat">
+            <div class="jog-rotor" id="jog-rotor-b">
+              <div class="jog-ring"></div>
+              <div class="jog-marker"></div>
+            </div>
+            <button type="button" class="jog-center" id="jog-reset-b" title="Tap to reset Deck B platter &amp; tempo to 100.0% center">
               <span class="jog-deck-label">DECK B</span>
               <span id="bpm-b" class="jog-bpm">100.0%</span>
-            </div>
+              <span class="jog-reset-hint">TAP RESET</span>
+            </button>
           </div>
         </div>
 

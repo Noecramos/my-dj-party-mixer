@@ -244,6 +244,8 @@ class DJDeck {
     this.waveCanvas = document.getElementById(`wave-${s}`);
     this.playheadEl = document.getElementById(`playhead-${s}`);
     this.jogEl = document.getElementById(`jog-${s}`);
+    this.jogRotorEl = document.getElementById(`jog-rotor-${s}`);
+    this.jogResetBtn = document.getElementById(`jog-reset-${s}`);
     this.bpmEl = document.getElementById(`bpm-${s}`);
     this.pitchSlider = document.getElementById(`pitch-${s}`);
     this.pitchValEl = document.getElementById(`pitch-val-${s}`);
@@ -299,10 +301,10 @@ class DJDeck {
       scrubbing = false;
     });
 
-    // Jog Wheel Scratch / Nudge (using Pointer Capture)
+    // Jog Wheel Scratch / Nudge (using Pointer Capture on outer platter, ignoring center reset button)
     let lastX = 0;
     this.jogEl.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      if ((e.button !== 0 && e.pointerType === 'mouse') || e.target.closest('.jog-center')) return;
       lastX = e.clientX;
       this.jogEl.setPointerCapture(e.pointerId);
       this.jogEl.classList.add('dragging');
@@ -312,7 +314,9 @@ class DJDeck {
       const dx = e.clientX - lastX;
       lastX = e.clientX;
       this.rotationAngle += dx * 1.4;
-      this.jogEl.style.transform = `rotate(${this.rotationAngle}deg)`;
+      if (this.jogRotorEl) {
+        this.jogRotorEl.style.transform = `rotate(${this.rotationAngle}deg)`;
+      }
       if (this.audio.duration) {
         this.audio.currentTime = Math.max(0, Math.min(this.audio.duration, this.audio.currentTime + dx * 0.035));
         this.updateTimeUI();
@@ -321,6 +325,28 @@ class DJDeck {
     this.jogEl.addEventListener('lostpointercapture', () => {
       this.jogEl.classList.remove('dragging');
     });
+
+    // Center Platter Button: Reset Platter Marker to Top Center (0°) + Reset Tempo to 100.0%
+    const resetPlatterAndTempo = () => {
+      this.rotationAngle = 0;
+      if (this.jogRotorEl) {
+        this.jogRotorEl.style.transform = 'rotate(0deg)';
+      }
+      this.pitchSlider.value = 1;
+      syncSliderValue(this.pitchSlider);
+      this.pitchSlider.dispatchEvent(new Event('input'));
+      if (this.jogResetBtn) {
+        this.jogResetBtn.classList.add('reset-flash');
+        setTimeout(() => this.jogResetBtn.classList.remove('reset-flash'), 240);
+      }
+    };
+
+    if (this.jogResetBtn) {
+      this.jogResetBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        resetPlatterAndTempo();
+      });
+    }
 
     // Pitch / Tempo Slider
     this.pitchSlider.addEventListener('input', () => {
@@ -331,11 +357,7 @@ class DJDeck {
       this.bpmEl.textContent = `${(rate * 100).toFixed(1)}%`;
     });
 
-    this.pitchResetBtn.addEventListener('click', () => {
-      this.pitchSlider.value = 1;
-      syncSliderValue(this.pitchSlider);
-      this.pitchSlider.dispatchEvent(new Event('input'));
-    });
+    this.pitchResetBtn.addEventListener('click', resetPlatterAndTempo);
 
     // Play / Pause
     this.playBtn.addEventListener('click', () => this.togglePlay());
@@ -507,7 +529,9 @@ class DJDeck {
         this.audio.currentTime = this.loopStart;
       }
       this.rotationAngle = (this.rotationAngle + 2.2 * this.audio.playbackRate) % 360;
-      this.jogEl.style.transform = `rotate(${this.rotationAngle}deg)`;
+      if (this.jogRotorEl) {
+        this.jogRotorEl.style.transform = `rotate(${this.rotationAngle}deg)`;
+      }
       this.updateTimeUI();
 
       // Check Auto-DJ Continuous Party Mix trigger (within last 6 seconds of track)
