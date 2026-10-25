@@ -317,6 +317,10 @@ async function downloadStreamToFile(streamUrl, ua, filePath, job) {
   if (!resp.ok || !resp.body) {
     throw new Error(`Upstream HTTP ${resp.status}`);
   }
+  const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+  if (ctype.includes('text/') || ctype.includes('json')) {
+    throw new Error('Upstream returned a web page instead of audio');
+  }
   const totalBytes = parseInt(resp.headers.get('content-length') || '0', 10) || job.totalBytes || 0;
   const tmpPath = filePath + `.${Date.now()}.part`;
   const fileStream = fs.createWriteStream(tmpPath);
@@ -341,6 +345,12 @@ async function downloadStreamToFile(streamUrl, ua, filePath, job) {
     fileStream.on('error', reject);
   });
 
+  let head = Buffer.alloc(16);
+  try { const fd = fs.openSync(tmpPath, 'r'); fs.readSync(fd, head, 0, 16, 0); fs.closeSync(fd); } catch (_) {}
+  if (head.toString('latin1').trim().startsWith('<')) {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    throw new Error('Downloaded file was an HTML page, not audio');
+  }
   if (received < 25000) {
     try { fs.unlinkSync(tmpPath); } catch (_) {}
     throw new Error('Downloaded audio file was empty or incomplete');
@@ -405,9 +415,7 @@ app.get('/api/youtube/prepare', async (req, res) => {
           return;
         } catch (_) {
           // Even if server disk write fails, loader.streamUrl has `Access-Control-Allow-Origin: *` so client can stream/download directly!
-          job.status = 'ready';
-          job.progress = 100;
-          return;
+          throw new Error('YouTube audio converter is blocked from the cloud server right now');
         }
       }
 
