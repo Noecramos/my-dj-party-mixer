@@ -973,16 +973,17 @@ async function refreshOfflineVaultUI() {
     `;
     const [btnA, btnB, btnDel] = row.querySelectorAll('button');
     const loadVaultItemToDeck = async (trItem, targetDeck) => {
-      // If a previous buggy download saved a tiny (<15KB) error blob, automatically re-fetch the real audio!
-      if (!trItem.blob || trItem.blob.size < 15000) {
-        const vid = trItem.id && trItem.id.startsWith('yt-') ? trItem.id.slice(3) : null;
+      if (trItem.blob && trItem.blob.size >= 15000) {
+        await targetDeck.loadBlob(trItem.blob, trItem.title, 'Offline Party Vault');
+      } else if (trItem.streamUrl) {
+        await targetDeck.loadStreamUrl(trItem.streamUrl, trItem.title, 'Cloud-Buffered Mix');
+      } else {
+        const vid = trItem.videoId || (trItem.id && trItem.id.startsWith('yt-') ? trItem.id.slice(3) : null);
         if (vid && vid.length === 11) {
-          await deleteVaultTrack(trItem.id);
           await loadYouTubeTrackToDeck({ videoId: vid, title: trItem.title, artist: trItem.artist }, targetDeck);
           return;
         }
       }
-      await targetDeck.loadBlob(trItem.blob, trItem.title, 'Offline Party Vault');
       crateModal.hidden = true;
       if (targetDeck.audio.paused) {
         await targetDeck.togglePlay();
@@ -1224,10 +1225,6 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
 async function saveYouTubeTrackOffline(item, btnEl) {
   const origText = btnEl.textContent;
   try {
-    if (item.duration && item.duration > 1200) {
-      setYtStatus(`"⚠️ ${item.title}" is a long mix (${fmtTime(item.duration)}). Tap DECK A or DECK B to play it from the Cloud Server buffer without filling tablet RAM!`, true);
-      return;
-    }
     btnEl.disabled = true;
     btnEl.textContent = '⏳ 0%';
     setYtStatus(`Downloading "${item.title}" (0%)...`);
@@ -1242,19 +1239,29 @@ async function saveYouTubeTrackOffline(item, btnEl) {
       downloadUrl = await resolveYouTubeProxyUrl(item);
     }
 
-    const resp = await fetch(downloadUrl);
-    if (!resp.ok) throw new Error('Download failed');
-    const blob = await resp.blob();
+    // For long mixes (> 15 mins / 900s), store a lightweight Server-Backed Offline Entry so we never exceed tablet RAM,
+    // and automatically load it into the first available Deck!
+    const isLongMix = item.duration && item.duration > 900;
+    let blobToSave = null;
+
+    if (!isLongMix) {
+      const resp = await fetch(downloadUrl);
+      if (!resp.ok) throw new Error('Download failed');
+      const rawBlob = await resp.blob();
+      blobToSave = new Blob([rawBlob], { type: 'audio/mp4' });
+    }
 
     await saveTrackToVault({
       id: `yt-${item.videoId || Date.now()}`,
+      videoId: item.videoId || null,
+      streamUrl: downloadUrl,
       title: item.title,
-      artist: `${item.artist} (100% Offline Ready)`,
-      blob,
+      artist: `${item.artist} (${isLongMix ? '100% Cloud-Buffered Mix' : '100% Offline Ready'})`,
+      blob: blobToSave,
       addedAt: Date.now()
     });
     btnEl.textContent = '✅ 100% SAVED';
-    setYtStatus(`✅ 100% Saved "${item.title}" to your Tablet Offline Vault!`);
+    setYtStatus(`✅ 100% Saved "${item.title}" to your Party Vault!`);
     await refreshOfflineVaultUI();
   } catch (err) {
     btnEl.textContent = origText;
@@ -1273,7 +1280,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   try {
     const tracks = await getAllVaultTracks();
     for (const tr of tracks) {
-      if (!tr.blob || tr.blob.size < 15000 || tr.blob.size > 20 * 1024 * 1024) {
+      if (tr.blob && (tr.blob.size < 15000 || tr.blob.size > 20 * 1024 * 1024)) {
+        await deleteVaultTrack(tr.id);
+      } else if (!tr.blob && !tr.streamUrl) {
         await deleteVaultTrack(tr.id);
       }
     }
