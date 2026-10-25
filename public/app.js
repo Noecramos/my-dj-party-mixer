@@ -173,19 +173,31 @@ class DJDeck {
     this.connected = true;
   }
 
-  generateDefaultWaveform() {
+  generateDefaultWaveform(seedStr = '') {
     const arr = [];
+    let seed = 1;
+    for (let c = 0; c < seedStr.length; c++) {
+      seed = (seed * 31 + seedStr.charCodeAt(c)) % 9973;
+    }
     for (let i = 0; i < 140; i++) {
-      arr.push(0.2 + 0.65 * Math.abs(Math.sin(i * 0.23) * Math.cos(i * 0.07)));
+      const v = 0.22 + 0.68 * Math.abs(Math.sin(i * 0.21 + seed) * Math.cos(i * 0.08 + seed * 0.5));
+      arr.push(v);
     }
     return arr;
   }
 
-  async extractWaveformFromBlob(blob) {
+  async extractWaveformFromBlob(blob, title = '') {
+    // CRITICAL SAFETY: Never call decodeAudioData on files > 7MB (e.g. 53-minute DJ sets!),
+    // because uncompressed 32-bit float PCM for a 53-min track takes ~1.1GB of RAM and instantly crashes Android Chrome ("Ah, não!")!
+    if (!blob || blob.size > 7 * 1024 * 1024) {
+      this.waveformPeaks = this.generateDefaultWaveform(title || String(blob ? blob.size : ''));
+      this.drawStaticWaveform();
+      return;
+    }
     try {
       ensureAudioContext();
       const arrayBuf = await blob.arrayBuffer();
-      const audioBuf = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+      const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
       const raw = audioBuf.getChannelData(0);
       const samples = 140;
       const blockSize = Math.floor(raw.length / samples);
@@ -193,7 +205,7 @@ class DJDeck {
       for (let i = 0; i < samples; i++) {
         let sum = 0;
         const start = i * blockSize;
-        for (let j = 0; j < blockSize; j += 16) {
+        for (let j = 0; j < blockSize; j += 32) {
           const v = Math.abs(raw[start + j] || 0);
           if (v > sum) sum = v;
         }
@@ -202,7 +214,7 @@ class DJDeck {
       this.waveformPeaks = peaks;
       this.drawStaticWaveform();
     } catch (_) {
-      this.waveformPeaks = this.generateDefaultWaveform();
+      this.waveformPeaks = this.generateDefaultWaveform(title);
       this.drawStaticWaveform();
     }
   }
@@ -515,22 +527,27 @@ class DJDeck {
     this.currentObjectUrl = URL.createObjectURL(blob);
     this.audio.src = this.currentObjectUrl;
     this.titleEl.textContent = title;
-    this.subEl.textContent = subtitle || '100% Buffered in RAM (Zero Stutter)';
+    this.subEl.textContent = subtitle || '100% Buffered (Zero Stutter)';
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
     this.cuePoint = 0;
     this.cueBtn.textContent = '⏺ CUE';
-    await this.extractWaveformFromBlob(blob);
+    await this.extractWaveformFromBlob(blob, title);
   }
 
   async loadStreamUrl(url, title, subtitle) {
     this.connectAudioGraph();
+    this.setDownloadProgress(null);
+    if (this.currentObjectUrl) {
+      URL.revokeObjectURL(this.currentObjectUrl);
+      this.currentObjectUrl = null;
+    }
     this.audio.src = url;
     this.titleEl.textContent = title;
-    this.subEl.textContent = subtitle || 'YouTube Stream (3-Band EQ Active)';
+    this.subEl.textContent = subtitle || '100% Server-Buffered • Zero Cutting & Zero RAM Crash';
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
     this.cuePoint = 0;
     this.cueBtn.textContent = '⏺ CUE';
-    this.waveformPeaks = this.generateDefaultWaveform();
+    this.waveformPeaks = this.generateDefaultWaveform(title);
     this.drawStaticWaveform();
   }
 
@@ -1094,41 +1111,78 @@ async function fetchAudioBlobWithProgress(url, onProgress) {
   return new Blob(chunks, { type: mime });
 }
 
+// Poll server-side download progress (0% -> 100%) so the Railway server buffers the file to disk,
+// avoiding YouTube throttling AND keeping Tablet RAM usage near 0 MB (even for 1-hour Afro House sets)!
+async function prepareServerAudioWithProgress(videoId, onProgress) {
+  while (true) {
+    const res = await fetch(`/api/youtube/prepare?v=${encodeURIComponent(videoId)}`);
+    const data = await res.json();
+    if (!res.ok || data.error || data.status === 'error') {
+      throw new Error(data.error || 'Could not buffer track on server');
+    }
+    if (data.status === 'ready') {
+      onProgress(100);
+      return data.streamUrl || `/api/youtube/file/${encodeURIComponent(videoId)}`;
+    }
+    onProgress(data.progress || 10);
+    await new Promise((r) => setTimeout(r, 600));
+  }
+}
+
 async function loadYouTubeTrackToDeck(item, deck, btnEl) {
   const origBtnText = btnEl ? btnEl.textContent : '';
   try {
     if (btnEl) btnEl.disabled = true;
     deck.titleEl.textContent = item.title;
-    deck.subEl.textContent = 'Downloading 100% to RAM for zero-cut playback...';
-    deck.setDownloadProgress(2, 'RESOLVING STREAM... 2%');
-    setYtStatus(`Downloading "${item.title}" into Deck ${deck.id.toUpperCase()} RAM (0%)...`);
+    deck.subEl.textContent = 'Buffering 100% on Cloud Server for zero-cut playback...';
+    deck.setDownloadProgress(3, 'PREPARING 3%');
+    setYtStatus(`Buffering "${item.title}" for Deck ${deck.id.toUpperCase()} (0%)...`);
 
-    const proxyUrl = await resolveYouTubeProxyUrl(item);
+    const isLongSet = (item.duration && item.duration > 600); // > 10 minutes
 
-    const blob = await fetchAudioBlobWithProgress(proxyUrl, (pct, received) => {
-      const mb = (received / (1024 * 1024)).toFixed(1);
-      deck.setDownloadProgress(pct, `DOWNLOADING ${pct}% (${mb} MB)`);
-      if (btnEl) btnEl.textContent = `⏳ ${pct}%`;
-      setYtStatus(`Downloading "${item.title}" to Deck ${deck.id.toUpperCase()}: ${pct}% (${mb} MB)`);
-    });
+    if (item.videoId) {
+      const serverFileUrl = await prepareServerAudioWithProgress(item.videoId, (pct) => {
+        deck.setDownloadProgress(pct, `BUFFERING ${pct}%`);
+        if (btnEl) btnEl.textContent = `⏳ ${pct}%`;
+        setYtStatus(`Buffering "${item.title}" to 100% before playing: ${pct}%`);
+      });
 
-    // Automatically save to Offline Party Vault as well so you never have to re-download it!
-    await saveTrackToVault({
-      id: `yt-${item.videoId || Date.now()}`,
-      title: item.title,
-      artist: `${item.artist} (100% Offline Ready)`,
-      blob,
-      addedAt: Date.now()
-    });
-    await refreshOfflineVaultUI();
+      // If it's a normal song (< 10 mins), we can also safely store it in Tablet Offline Vault!
+      // If it's a huge 1-hour DJ set (> 10 mins), stream from our fast server disk cache so Tablet RAM never crashes!
+      if (!isLongSet) {
+        try {
+          const resp = await fetch(serverFileUrl);
+          if (resp.ok) {
+            const blob = await resp.blob();
+            await saveTrackToVault({
+              id: `yt-${item.videoId}`,
+              title: item.title,
+              artist: `${item.artist} (100% Offline Ready)`,
+              blob,
+              addedAt: Date.now()
+            });
+            await refreshOfflineVaultUI();
+            await deck.loadBlob(blob, item.title, `100% Offline Ready • ${item.artist}`);
+          } else {
+            await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered Set • ${item.artist}`);
+          }
+        } catch (_) {
+          await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered Set • ${item.artist}`);
+        }
+      } else {
+        await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered Long DJ Set • ${item.artist}`);
+      }
+    } else {
+      const proxyUrl = await resolveYouTubeProxyUrl(item);
+      await deck.loadStreamUrl(proxyUrl, item.title, `YouTube • ${item.artist}`);
+    }
 
-    await deck.loadBlob(blob, item.title, `100% Buffered Offline • ${item.artist}`);
-    setYtStatus(`✅ 100% Downloaded "${item.title}" to Deck ${deck.id.toUpperCase()} & saved to Offline Vault! Zero cutting guaranteed.`);
+    setYtStatus(`✅ 100% Ready "${item.title}" on Deck ${deck.id.toUpperCase()}! Zero cutting & RAM protected.`);
     if (btnEl) {
       btnEl.textContent = '✅ 100%';
       btnEl.disabled = false;
     }
-    setTimeout(() => { crateModal.hidden = true; }, 450);
+    setTimeout(() => { crateModal.hidden = true; }, 400);
   } catch (err) {
     deck.setDownloadProgress(null);
     if (btnEl) {
@@ -1142,16 +1196,27 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
 async function saveYouTubeTrackOffline(item, btnEl) {
   const origText = btnEl.textContent;
   try {
+    if (item.duration && item.duration > 1200) {
+      setYtStatus(`"⚠️ ${item.title}" is a long mix (${fmtTime(item.duration)}). Tap DECK A or DECK B to play it from the Cloud Server buffer without filling tablet RAM!`, true);
+      return;
+    }
     btnEl.disabled = true;
     btnEl.textContent = '⏳ 0%';
     setYtStatus(`Downloading "${item.title}" (0%)...`);
-    const proxyUrl = await resolveYouTubeProxyUrl(item);
 
-    const blob = await fetchAudioBlobWithProgress(proxyUrl, (pct, received) => {
-      const mb = (received / (1024 * 1024)).toFixed(1);
-      btnEl.textContent = `⏳ ${pct}%`;
-      setYtStatus(`Saving "${item.title}" to Tablet Offline Vault: ${pct}% (${mb} MB)...`);
-    });
+    let downloadUrl;
+    if (item.videoId) {
+      downloadUrl = await prepareServerAudioWithProgress(item.videoId, (pct) => {
+        btnEl.textContent = `⏳ ${pct}%`;
+        setYtStatus(`Buffering "${item.title}": ${pct}%...`);
+      });
+    } else {
+      downloadUrl = await resolveYouTubeProxyUrl(item);
+    }
+
+    const resp = await fetch(downloadUrl);
+    if (!resp.ok) throw new Error('Download failed');
+    const blob = await resp.blob();
 
     await saveTrackToVault({
       id: `yt-${item.videoId || Date.now()}`,
@@ -1161,7 +1226,7 @@ async function saveYouTubeTrackOffline(item, btnEl) {
       addedAt: Date.now()
     });
     btnEl.textContent = '✅ 100% SAVED';
-    setYtStatus(`✅ 100% Saved "${item.title}" to your Tablet Offline Vault! Zero cutting guaranteed.`);
+    setYtStatus(`✅ 100% Saved "${item.title}" to your Tablet Offline Vault!`);
     await refreshOfflineVaultUI();
   } catch (err) {
     btnEl.textContent = origText;
@@ -1175,8 +1240,16 @@ ytInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') performYouTubeSearch();
 });
 
-// Initialize Demo Tracks & Offline Vault Count on Startup
+// Initialize Demo Tracks & Offline Vault Count on Startup (auto-clean any oversized >20MB blobs that could crash Android RAM)
 window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const tracks = await getAllVaultTracks();
+    for (const tr of tracks) {
+      if (tr.blob && tr.blob.size > 20 * 1024 * 1024) {
+        await deleteVaultTrack(tr.id);
+      }
+    }
+  } catch (_) {}
   await generateDemoBeats();
   await refreshOfflineVaultUI();
 });

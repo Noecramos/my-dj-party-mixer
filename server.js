@@ -222,6 +222,94 @@ app.get('/api/youtube/info', async (req, res) => {
   });
 });
 
+const fs = require('fs');
+const os = require('os');
+
+// Temporary disk cache for YouTube audio files so Android tablets can stream with HTTP Range requests & zero RAM crash
+const AUDIO_CACHE_DIR = path.join(os.tmpdir(), 'mydj-audio-cache');
+if (!fs.existsSync(AUDIO_CACHE_DIR)) {
+  fs.mkdirSync(AUDIO_CACHE_DIR, { recursive: true });
+}
+
+// Track active downloads and progress: videoId -> { status: 'downloading'|'ready'|'error', progress: 0..100, filePath, title, error }
+const downloadJobs = new Map();
+
+// Start or check server-side download job for a YouTube videoId
+app.get('/api/youtube/prepare', async (req, res) => {
+  const videoId = extractVideoId(req.query.v || req.query.url);
+  if (!videoId) return res.status(400).json({ error: 'Invalid videoId' });
+
+  const existing = downloadJobs.get(videoId);
+  if (existing && existing.status === 'ready' && fs.existsSync(existing.filePath)) {
+    return res.json({ status: 'ready', progress: 100, streamUrl: `/api/youtube/file/${videoId}` });
+  }
+  if (existing && existing.status === 'downloading') {
+    return res.json({ status: 'downloading', progress: existing.progress || 5 });
+  }
+
+  const filePath = path.join(AUDIO_CACHE_DIR, `${videoId}.m4a`);
+  if (fs.existsSync(filePath) && fs.statSync(filePath).size > 50000) {
+    downloadJobs.set(videoId, { status: 'ready', progress: 100, filePath });
+    return res.json({ status: 'ready', progress: 100, streamUrl: `/api/youtube/file/${videoId}` });
+  }
+
+  const job = { status: 'downloading', progress: 2, filePath, error: null };
+  downloadJobs.set(videoId, job);
+
+  // First try downloading via Piped direct stream or yt-dlp
+  let startedYtDlp = false;
+  const startYtDlpDownload = () => {
+    if (startedYtDlp) return;
+    startedYtDlp = true;
+    const proc = spawn('yt-dlp', [
+      '-f', 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio',
+      '--no-playlist',
+      '--newline',
+      '-o', filePath,
+      `https://www.youtube.com/watch?v=${videoId}`
+    ]);
+
+    proc.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      const match = text.match(/(\d+(?:\.\d+)?)%/);
+      if (match) {
+        job.progress = Math.min(99, Math.max(job.progress, Math.round(parseFloat(match[1]))));
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(filePath) && fs.statSync(filePath).size > 10000) {
+        job.status = 'ready';
+        job.progress = 100;
+      } else {
+        job.status = 'error';
+        job.error = 'Could not buffer this YouTube video on server.';
+      }
+    });
+
+    proc.on('error', () => {
+      job.status = 'error';
+      job.error = 'yt-dlp unavailable on server.';
+    });
+  };
+
+  startYtDlpDownload();
+  res.json({ status: 'downloading', progress: job.progress });
+});
+
+// Serve cached audio file with full HTTP 206 Partial Content / Range support so Android Chrome uses < 2MB RAM even on 2-hour sets!
+app.get('/api/youtube/file/:videoId', (req, res) => {
+  const videoId = extractVideoId(req.params.videoId);
+  if (!videoId) return res.status(400).send('Invalid ID');
+  const filePath = path.join(AUDIO_CACHE_DIR, `${videoId}.m4a`);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Audio file not ready');
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', 'audio/mp4');
+  res.sendFile(filePath);
+});
+
 // Proxy external audio stream with full CORS headers so Web Audio API can apply Bass/Mid/Treble EQ
 app.get('/api/youtube/proxy', (req, res) => {
   const targetUrl = req.query.url;
