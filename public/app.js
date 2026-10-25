@@ -273,6 +273,13 @@ class DJDeck {
     this.killHighBtn = document.getElementById(`kill-high-${s}`);
     this.killMidBtn = document.getElementById(`kill-mid-${s}`);
     this.killLowBtn = document.getElementById(`kill-low-${s}`);
+
+    this.zeroHighBtn = document.getElementById(`zero-high-${s}`);
+    this.zeroMidBtn = document.getElementById(`zero-mid-${s}`);
+    this.zeroLowBtn = document.getElementById(`zero-low-${s}`);
+    this.vol50Btn = document.getElementById(`vol-50-${s}`);
+    this.vol100Btn = document.getElementById(`vol-100-${s}`);
+
     this.eqResetBtn = document.getElementById(`eq-reset-${s}`);
     this.vuCanvas = document.getElementById(`vu-${s}`);
 
@@ -435,23 +442,42 @@ class DJDeck {
     this.killMidBtn.addEventListener('click', () => this.toggleKill('mid', this.midFilter, this.killMidBtn));
     this.killLowBtn.addEventListener('click', () => this.toggleKill('low', this.lowFilter, this.killLowBtn));
 
-    // Flat EQ Reset
-    this.eqResetBtn.addEventListener('click', () => {
+    // Individual 0 dB Reset Buttons + Double-Tap on Sliders
+    const resetSingleBand = (band, sliderEl, killBtnEl) => {
       this.connectAudioGraph();
-      ['high', 'mid', 'low'].forEach((band) => {
-        this.kills[band] = false;
-        this.savedEq[band] = 0;
-      });
-      this.killHighBtn.classList.remove('killed');
-      this.killMidBtn.classList.remove('killed');
-      this.killLowBtn.classList.remove('killed');
-      this.eqHigh.value = 0;
-      this.eqMid.value = 0;
-      this.eqLow.value = 0;
-      [this.eqHigh, this.eqMid, this.eqLow].forEach((sl) => {
-        syncSliderValue(sl);
-        sl.dispatchEvent(new Event('input'));
-      });
+      this.kills[band] = false;
+      this.savedEq[band] = 0;
+      if (killBtnEl) killBtnEl.classList.remove('killed');
+      sliderEl.value = 0;
+      syncSliderValue(sliderEl);
+      sliderEl.dispatchEvent(new Event('input'));
+    };
+
+    if (this.zeroHighBtn) this.zeroHighBtn.addEventListener('click', () => resetSingleBand('high', this.eqHigh, this.killHighBtn));
+    if (this.zeroMidBtn) this.zeroMidBtn.addEventListener('click', () => resetSingleBand('mid', this.eqMid, this.killMidBtn));
+    if (this.zeroLowBtn) this.zeroLowBtn.addEventListener('click', () => resetSingleBand('low', this.eqLow, this.killLowBtn));
+
+    this.eqHigh.addEventListener('dblclick', () => resetSingleBand('high', this.eqHigh, this.killHighBtn));
+    this.eqMid.addEventListener('dblclick', () => resetSingleBand('mid', this.eqMid, this.killMidBtn));
+    this.eqLow.addEventListener('dblclick', () => resetSingleBand('low', this.eqLow, this.killLowBtn));
+
+    // Volume 50% and 100% Quick Reset Buttons
+    const setDeckVolume = (targetVal) => {
+      this.connectAudioGraph();
+      this.volSlider.value = targetVal;
+      syncSliderValue(this.volSlider);
+      this.volSlider.dispatchEvent(new Event('input'));
+    };
+
+    if (this.vol50Btn) this.vol50Btn.addEventListener('click', () => setDeckVolume(0.5));
+    if (this.vol100Btn) this.vol100Btn.addEventListener('click', () => setDeckVolume(1.0));
+    this.volSlider.addEventListener('dblclick', () => setDeckVolume(0.5));
+
+    // Flat EQ Reset (All Bands 0 dB)
+    this.eqResetBtn.addEventListener('click', () => {
+      resetSingleBand('high', this.eqHigh, this.killHighBtn);
+      resetSingleBand('mid', this.eqMid, this.killMidBtn);
+      resetSingleBand('low', this.eqLow, this.killLowBtn);
     });
 
     // Audio Events

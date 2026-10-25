@@ -110,14 +110,20 @@
       <div class="eq-columns">
         <!-- DECK A EQ STRIP -->
         <div class="eq-strip eq-strip-a">
-          <div class="strip-header">CH A EQ</div>
+          <div class="strip-header">
+            <span>CH A EQ</span>
+            <button type="button" id="eq-reset-a" class="btn-kill btn-flat" title="Reset all Deck A EQ bands to 0 dB">ALL FLAT 0</button>
+          </div>
 
           <!-- TREBLE (HIGH) -->
           <div class="eq-band">
             <div class="eq-label-row">
               <label for="eq-high-a">TREBLE</label>
               <span id="val-high-a" class="mono eq-db">0 dB</span>
-              <button type="button" id="kill-high-a" class="btn-kill" title="Kill Deck A Treble">KILL</button>
+              <div class="eq-btn-group">
+                <button type="button" id="zero-high-a" class="btn-kill btn-zero" title="Reset Deck A Treble to 0 dB">0 dB</button>
+                <button type="button" id="kill-high-a" class="btn-kill" title="Kill Deck A Treble">KILL</button>
+              </div>
             </div>
             <input type="range" id="eq-high-a" class="styled-slider eq-slider-a" min="-24" max="15" step="0.5" value="0" />
           </div>
@@ -127,7 +133,10 @@
             <div class="eq-label-row">
               <label for="eq-mid-a">MIDS</label>
               <span id="val-mid-a" class="mono eq-db">0 dB</span>
-              <button type="button" id="kill-mid-a" class="btn-kill" title="Kill Deck A Mids">KILL</button>
+              <div class="eq-btn-group">
+                <button type="button" id="zero-mid-a" class="btn-kill btn-zero" title="Reset Deck A Mids to 0 dB">0 dB</button>
+                <button type="button" id="kill-mid-a" class="btn-kill" title="Kill Deck A Mids">KILL</button>
+              </div>
             </div>
             <input type="range" id="eq-mid-a" class="styled-slider eq-slider-a" min="-24" max="15" step="0.5" value="0" />
           </div>
@@ -137,7 +146,10 @@
             <div class="eq-label-row">
               <label for="eq-low-a">BASS</label>
               <span id="val-low-a" class="mono eq-db">0 dB</span>
-              <button type="button" id="kill-low-a" class="btn-kill" title="Kill Deck A Bass">KILL</button>
+              <div class="eq-btn-group">
+                <button type="button" id="zero-low-a" class="btn-kill btn-zero" title="Reset Deck A Bass to 0 dB">0 dB</button>
+                <button type="button" id="kill-low-a" class="btn-kill" title="Kill Deck A Bass">KILL</button>
+              </div>
             </div>
             <input type="range" id="eq-low-a" class="styled-slider eq-slider-a" min="-24" max="15" step="0.5" value="0" />
           </div>
@@ -147,28 +159,37 @@
             <div class="eq-label-row">
               <label for="vol-a">VOL A</label>
               <span id="val-vol-a" class="mono eq-db">100%</span>
-              <button type="button" id="eq-reset-a" class="btn-kill btn-flat" title="Reset Deck A EQ to 0dB">FLAT</button>
+              <div class="eq-btn-group">
+                <button type="button" id="vol-50-a" class="btn-kill btn-zero" title="Set Deck A Volume to 50%">50%</button>
+                <button type="button" id="vol-100-a" class="btn-kill btn-flat" title="Set Deck A Volume to 100%">100%</button>
+              </div>
             </div>
-            <input type="range" id="vol-a" class="styled-slider eq-slider-a" min="0" max="1.2" step="0.01" value="1" />
+            <input type="range" id="vol-a" class="styled-slider eq-slider-a" min="0" max="1" step="0.01" value="1" />
           </div>
         </div>
 
         <!-- CENTER VU METERS -->
         <div class="vu-column">
-          <canvas id="vu-a" width="16" height="190" aria-label="Deck A level meter"></canvas>
-          <canvas id="vu-b" width="16" height="190" aria-label="Deck B level meter"></canvas>
+          <canvas id="vu-a" width="14" height="210" aria-label="Deck A level meter"></canvas>
+          <canvas id="vu-b" width="14" height="210" aria-label="Deck B level meter"></canvas>
         </div>
 
         <!-- DECK B EQ STRIP -->
         <div class="eq-strip eq-strip-b">
-          <div class="strip-header">CH B EQ</div>
+          <div class="strip-header">
+            <span>CH B EQ</span>
+            <button type="button" id="eq-reset-b" class="btn-kill btn-flat" title="Reset all Deck B EQ bands to 0 dB">ALL FLAT 0</button>
+          </div>
 
           <!-- TREBLE (HIGH) -->
           <div class="eq-band">
             <div class="eq-label-row">
               <label for="eq-high-b">TREBLE</label>
               <span id="val-high-b" class="mono eq-db">0 dB</span>
-              <button type="button" id="kill-high-b" class="btn-kill" title="Kill Deck B Treble">KILL</button>
+              <div class="eq-btn-group">
+                <button type="button" id="zero-high-b" class="btn-kill btn-zero" title="Reset Deck B Treble to 0 dB">0 dB</button>
+                <button type="button" id="kill-high-b" class="btn-kill" title="Kill Deck B Treble">KILL</button>
+              </div>
             </div>
             <input type="range" id="eq-high-b" class="styled-slider eq-slider-b" min="-24" max="15" step="0.5" value="0" />
           </div>
@@ -178,7 +199,10 @@
             <div class="eq-label-row">
               <label for="eq-mid-b">MIDS</label>
               <span id="val-mid-b" class="mono eq-db">0 dB</span>
-              <button type="button" id="kill-mid-b" class="btn-kill" title="Kill Deck B Mids">KILL</button>
+              <div class="eq-btn-group">
+                <button type="button" id="zero-mid-b" class="btn-kill btn-zero" title="Reset Deck B Mids to 0 dB">0 dB</button>
+                <button type="button" id="kill-mid-b" class="btn-kill" title="Kill Deck B Mids">KILL</button>
+              </div>
             </div>
             <input type="range" id="eq-mid-b" class="styled-slider eq-slider-b" min="-24" max="15" step="0.5" value="0" />
           </div>
@@ -188,7 +212,10 @@
             <div class="eq-label-row">
               <label for="eq-low-b">BASS</label>
               <span id="val-low-b" class="mono eq-db">0 dB</span>
-              <button type="button" id="kill-low-b" class="btn-kill" title="Kill Deck B Bass">KILL</button>
+              <div class="eq-btn-group">
+                <button type="button" id="zero-low-b" class="btn-kill btn-zero" title="Reset Deck B Bass to 0 dB">0 dB</button>
+                <button type="button" id="kill-low-b" class="btn-kill" title="Kill Deck B Bass">KILL</button>
+              </div>
             </div>
             <input type="range" id="eq-low-b" class="styled-slider eq-slider-b" min="-24" max="15" step="0.5" value="0" />
           </div>
@@ -198,9 +225,12 @@
             <div class="eq-label-row">
               <label for="vol-b">VOL B</label>
               <span id="val-vol-b" class="mono eq-db">100%</span>
-              <button type="button" id="eq-reset-b" class="btn-kill btn-flat" title="Reset Deck B EQ to 0dB">FLAT</button>
+              <div class="eq-btn-group">
+                <button type="button" id="vol-50-b" class="btn-kill btn-zero" title="Set Deck B Volume to 50%">50%</button>
+                <button type="button" id="vol-100-b" class="btn-kill btn-flat" title="Set Deck B Volume to 100%">100%</button>
+              </div>
             </div>
-            <input type="range" id="vol-b" class="styled-slider eq-slider-b" min="0" max="1.2" step="0.01" value="1" />
+            <input type="range" id="vol-b" class="styled-slider eq-slider-b" min="0" max="1" step="0.01" value="1" />
           </div>
         </div>
       </div>
