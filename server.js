@@ -366,13 +366,17 @@ app.get('/api/youtube/prepare', async (req, res) => {
 
   (async () => {
     try {
-      // 1st Try: InnerTube direct stream (fastest when on residential IP)
-      const inner = await resolveViaInnerTube(videoId);
-      if (inner && inner.streamUrl) {
-        job.totalBytes = inner.contentLength || 0;
-        job.progress = 15;
-        await downloadStreamToFile(inner.streamUrl, inner.ua, filePath, job);
-        return;
+      // 1st Try: InnerTube direct stream (fastest when not 403-blocked by datacenter IP)
+      try {
+        const inner = await resolveViaInnerTube(videoId);
+        if (inner && inner.streamUrl) {
+          job.totalBytes = inner.contentLength || 0;
+          job.progress = 15;
+          await downloadStreamToFile(inner.streamUrl, inner.ua, filePath, job);
+          return;
+        }
+      } catch (innerErr) {
+        console.log(`InnerTube direct download returned (${innerErr.message}), falling back to Loader.to residential cloud converter...`);
       }
 
       // 2nd Try: Loader.to / SaveNow cloud converter (works 100% on Railway Cloud Datacenter IPs!)
