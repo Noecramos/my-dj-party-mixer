@@ -179,6 +179,11 @@ class DJDeck {
     this.xfadeGain.connect(this.analyser);
     this.analyser.connect(masterAnalyser);
 
+    // Initial sync of crossfader gain
+    if (typeof applyCrossfader === 'function' && crossfader) {
+      applyCrossfader(parseFloat(crossfader.value || '0'));
+    }
+
     this.connected = true;
   }
 
@@ -1310,9 +1315,11 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
     crateModal.hidden = true;
     
     // Explicitly un-pause or trigger play now that stream/blob is loaded
-    if (deck.audio.paused) {
-      await deck.togglePlay();
-    }
+    try {
+      if (deck.audio.paused) {
+        await deck.togglePlay();
+      }
+    } catch (_) {}
   } catch (err) {
     deck.setDownloadProgress(null);
     if (btnEl) {
@@ -1376,14 +1383,17 @@ ytInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') performYouTubeSearch();
 });
 
-// Initialize Demo Tracks & Offline Vault Count on Startup (auto-clean any corrupted <15KB or oversized >20MB blobs)
+// Initialize Demo Tracks & Offline Vault Count on Startup (auto-clean corrupted or expired broken items)
 window.addEventListener('DOMContentLoaded', async () => {
   try {
     const tracks = await getAllVaultTracks();
     for (const tr of tracks) {
       if (tr.blob && (tr.blob.size < 15000 || tr.blob.size > 20 * 1024 * 1024)) {
         await deleteVaultTrack(tr.id);
-      } else if (!tr.blob && !tr.streamUrl) {
+      } else if (!tr.blob && !tr.streamUrl && !tr.videoId) {
+        await deleteVaultTrack(tr.id);
+      } else if (tr.videoId === 'mn0PupX6Q20' || (tr.id && tr.id.includes('mn0PupX6Q20'))) {
+        // Automatically delete the dead deleted video from the user's vault
         await deleteVaultTrack(tr.id);
       }
     }
