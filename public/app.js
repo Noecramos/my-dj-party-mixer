@@ -205,15 +205,14 @@ class DJDeck {
   }
 
   async extractWaveformFromBlob(blob, title = '') {
-    // CRITICAL SAFETY: Never call decodeAudioData on files > 7MB (e.g. 53-minute DJ sets!),
-    // because uncompressed 32-bit float PCM for a 53-min track takes ~1.1GB of RAM and instantly crashes Android Chrome ("Ah, não!")!
-    if (!blob || blob.size > 7 * 1024 * 1024) {
-      this.waveformPeaks = this.generateDefaultWaveform(title || String(blob ? blob.size : ''));
-      this.drawStaticWaveform();
+    // Always draw deterministic club waveform immediately so the waveform canvas is NEVER blank,
+    // and never call decodeAudioData on files > 5MB or when AudioContext hasn't been started by a user gesture!
+    this.waveformPeaks = this.generateDefaultWaveform(title || String(blob ? blob.size : ''));
+    this.drawStaticWaveform();
+    if (!blob || blob.size > 5 * 1024 * 1024 || !audioCtx || audioCtx.state !== 'running') {
       return;
     }
     try {
-      ensureAudioContext();
       const arrayBuf = await blob.arrayBuffer();
       const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
       const raw = audioBuf.getChannelData(0);
@@ -585,9 +584,37 @@ class DJDeck {
     });
   }
 
-  async loadBlob(blob, title, subtitle) {
+  unlockAudioOnUserGesture() {
+    ensureAudioContext();
     this.connectAudioGraph();
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    // Unlock this specific HTMLAudioElement in Android Chrome's AutoplayPolicy during the user's synchronous tap gesture
+    // so programmatic play() after a 15-second cloud download succeeds automatically!
+    if (this.audio.paused && this.audio.src) {
+      this.audio.muted = true;
+      const unlockSrc = this.audio.src;
+      const p = this.audio.play();
+      if (p !== undefined) {
+        p.then(() => {
+          if (this.audio.src === unlockSrc && this.isDownloading) {
+            this.audio.pause();
+          }
+          this.audio.muted = false;
+        }).catch(() => {
+          this.audio.muted = false;
+        });
+      } else {
+        this.audio.pause();
+        this.audio.muted = false;
+      }
+    }
+  }
+
+  async loadBlob(blob, title, subtitle) {
     this.setDownloadProgress(null);
+    this.audio.muted = false;
     if (!this.audio.paused) this.audio.pause();
     if (this.currentObjectUrl) URL.revokeObjectURL(this.currentObjectUrl);
     // Ensure valid audio MIME type on Android Chrome
@@ -602,14 +629,15 @@ class DJDeck {
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
     this.cuePoint = 0;
     this.cueBtn.textContent = '⏺ CUE';
-    await this.waitForAudioReady(5000);
+    this.waveformPeaks = this.generateDefaultWaveform(title);
+    this.drawStaticWaveform();
     this.updateTimeUI();
-    await this.extractWaveformFromBlob(safeBlob, title);
+    this.extractWaveformFromBlob(safeBlob, title);
   }
 
   async loadStreamUrl(url, title, subtitle) {
-    this.connectAudioGraph();
     this.setDownloadProgress(null);
+    this.audio.muted = false;
     if (!this.audio.paused) this.audio.pause();
     if (this.currentObjectUrl) {
       URL.revokeObjectURL(this.currentObjectUrl);
@@ -624,7 +652,6 @@ class DJDeck {
     this.cueBtn.textContent = '⏺ CUE';
     this.waveformPeaks = this.generateDefaultWaveform(title);
     this.drawStaticWaveform();
-    await this.waitForAudioReady(8000);
     this.updateTimeUI();
   }
 
@@ -632,7 +659,7 @@ class DJDeck {
     ensureAudioContext();
     this.connectAudioGraph();
     if (audioCtx && audioCtx.state === 'suspended') {
-      try { await audioCtx.resume(); } catch (_) {}
+      audioCtx.resume();
     }
     if (this.isDownloading) {
       this.wantAutoPlayAfterDownload = true;
@@ -640,33 +667,31 @@ class DJDeck {
       return;
     }
     if (!this.audio.src) {
-      await generateDemoBeats();
-    }
-    // If the current audio source failed (e.g. 404 after a server restart), re-buffer automatically if we have a videoId!
-    if (this.audio.error && this.currentVideoId) {
-      await loadYouTubeTrackToDeck({ videoId: this.currentVideoId, title: this.titleEl.textContent, artist: 'YouTube', duration: 1800 }, this);
-      return;
+      generateDemoBeats();
     }
     if (this.audio.paused) {
-      if (this.playPromisePending) return;
-      this.playPromisePending = true;
       try {
-        await this.waitForAudioReady(4000);
-        if (audioCtx && audioCtx.state === 'suspended') {
-          await audioCtx.resume();
-        }
-        await this.audio.play();
+        // CRITICAL FOR ANDROID TABLETS: Call audioCtx.resume() and audio.play() SYNCHRONOUSLY inside the tap event!
+        // Never `await` before `this.audio.play()`, otherwise Android Chrome drops the user-gesture token and blocks play()!
+        this.audio.muted = false;
+        const playPromise = this.audio.play();
         this.isPlaying = true;
         this.playBtn.classList.add('active');
         this.playBtn.textContent = '⏸ PAUSE';
+        if (playPromise !== undefined) {
+          await playPromise;
+        }
       } catch (err) {
         if (err && err.name === 'AbortError') return;
-        console.warn('Playback notice:', err);
-        if (this.currentVideoId) {
-          await loadYouTubeTrackToDeck({ videoId: this.currentVideoId, title: this.titleEl.textContent, artist: 'YouTube', duration: 1800 }, this);
+        this.isPlaying = false;
+        this.playBtn.classList.remove('active');
+        this.playBtn.textContent = '▶ PLAY';
+        if (err && err.name === 'NotAllowedError') {
+          this.subEl.textContent = '🔊 100% Ready! Tap ▶ PLAY below to start audio';
+          return;
         }
-      } finally {
-        this.playPromisePending = false;
+        console.warn('Playback error:', err);
+        this.subEl.textContent = `⚠️ ${err.message || 'Tap ▶ PLAY again'}`;
       }
     } else {
       this.audio.pause();
@@ -1069,8 +1094,7 @@ async function refreshOfflineVaultUI() {
     `;
     const [btnA, btnB, btnDel] = row.querySelectorAll('button');
     const loadVaultItemToDeck = async (trItem, targetDeck, btnEl) => {
-      ensureAudioContext();
-      targetDeck.connectAudioGraph();
+      targetDeck.unlockAudioOnUserGesture();
       if (trItem.blob && trItem.blob.size >= 15000) {
         await targetDeck.loadBlob(trItem.blob, trItem.title, 'Offline Party Vault');
         crateModal.hidden = true;
@@ -1255,12 +1279,9 @@ async function prepareServerAudioWithProgress(videoId, onProgress) {
 async function loadYouTubeTrackToDeck(item, deck, btnEl) {
   const origBtnText = btnEl ? btnEl.textContent : '';
   try {
-    // Unlock AudioContext immediately inside the user's tap gesture so Android Chrome permits auto-play when download finishes!
-    ensureAudioContext();
-    if (audioCtx && audioCtx.state === 'suspended') {
-      try { await audioCtx.resume(); } catch (_) {}
-    }
-    deck.connectAudioGraph();
+    // Unlock AudioContext AND the deck's HTMLAudioElement synchronously inside the user's tap gesture
+    // so Android Chrome permits auto-play even after a 15-second cloud download finishes!
+    deck.unlockAudioOnUserGesture();
 
     if (btnEl) btnEl.disabled = true;
     deck.currentVideoId = item.videoId || null;
@@ -1385,6 +1406,19 @@ async function saveYouTubeTrackOffline(item, btnEl) {
 btnYtSearch.addEventListener('click', performYouTubeSearch);
 ytInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') performYouTubeSearch();
+});
+
+// Global first-touch Web Audio unlocker for Android Chrome / iOS Safari tablets & phones
+function unlockWebAudioOnFirstTouch() {
+  ensureAudioContext();
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  deckA.connectAudioGraph();
+  deckB.connectAudioGraph();
+}
+['pointerdown', 'touchstart', 'click', 'keydown'].forEach((evt) => {
+  window.addEventListener(evt, unlockWebAudioOnFirstTouch, { once: true, passive: true });
 });
 
 // Initialize Demo Tracks & Offline Vault Count on Startup (auto-clean corrupted or expired broken items)
