@@ -493,6 +493,26 @@ class DJDeck {
     });
 
     // Audio Events
+    this.audio.addEventListener('loadedmetadata', () => {
+      this.updateTimeUI();
+    });
+
+    this.audio.addEventListener('canplay', () => {
+      this.updateTimeUI();
+    });
+
+    this.audio.addEventListener('play', () => {
+      this.isPlaying = true;
+      this.playBtn.classList.add('active');
+      this.playBtn.textContent = '⏸ PAUSE';
+    });
+
+    this.audio.addEventListener('pause', () => {
+      this.isPlaying = false;
+      this.playBtn.classList.remove('active');
+      this.playBtn.textContent = '▶ PLAY';
+    });
+
     this.audio.addEventListener('ended', () => {
       this.isPlaying = false;
       this.playBtn.classList.remove('active');
@@ -511,18 +531,40 @@ class DJDeck {
   setDownloadProgress(pct, label) {
     if (!this.dlOverlayEl) return;
     if (pct === null) {
+      this.isDownloading = false;
       this.dlOverlayEl.hidden = true;
       return;
     }
+    this.isDownloading = true;
     this.dlOverlayEl.hidden = false;
     const clamped = Math.max(0, Math.min(100, Math.round(pct)));
     this.dlBarEl.style.inlineSize = `${clamped}%`;
     this.dlTextEl.textContent = label || `DOWNLOADING TO RAM: ${clamped}%`;
   }
 
+  waitForAudioReady(timeoutMs = 8000) {
+    if (this.audio.readyState >= 2) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        this.audio.removeEventListener('canplay', finish);
+        this.audio.removeEventListener('loadeddata', finish);
+        this.audio.removeEventListener('error', finish);
+        resolve();
+      };
+      this.audio.addEventListener('canplay', finish, { once: true });
+      this.audio.addEventListener('loadeddata', finish, { once: true });
+      this.audio.addEventListener('error', finish, { once: true });
+      setTimeout(finish, timeoutMs);
+    });
+  }
+
   async loadBlob(blob, title, subtitle) {
     this.connectAudioGraph();
     this.setDownloadProgress(null);
+    if (!this.audio.paused) this.audio.pause();
     if (this.currentObjectUrl) URL.revokeObjectURL(this.currentObjectUrl);
     // Ensure valid audio MIME type on Android Chrome
     const safeBlob = (!blob.type || blob.type === 'application/octet-stream' || blob.type.includes('text'))
@@ -536,12 +578,15 @@ class DJDeck {
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
     this.cuePoint = 0;
     this.cueBtn.textContent = '⏺ CUE';
+    await this.waitForAudioReady(5000);
+    this.updateTimeUI();
     await this.extractWaveformFromBlob(safeBlob, title);
   }
 
   async loadStreamUrl(url, title, subtitle) {
     this.connectAudioGraph();
     this.setDownloadProgress(null);
+    if (!this.audio.paused) this.audio.pause();
     if (this.currentObjectUrl) {
       URL.revokeObjectURL(this.currentObjectUrl);
       this.currentObjectUrl = null;
@@ -555,22 +600,35 @@ class DJDeck {
     this.cueBtn.textContent = '⏺ CUE';
     this.waveformPeaks = this.generateDefaultWaveform(title);
     this.drawStaticWaveform();
+    await this.waitForAudioReady(8000);
+    this.updateTimeUI();
   }
 
   async togglePlay() {
     this.connectAudioGraph();
+    if (this.isDownloading) {
+      this.wantAutoPlayAfterDownload = true;
+      this.subEl.textContent = '⏳ Finishing 100% buffer — will auto-play immediately!';
+      return;
+    }
     if (!this.audio.src) {
       await generateDemoBeats();
     }
     if (this.audio.paused) {
+      if (this.playPromisePending) return;
+      this.playPromisePending = true;
       try {
+        await this.waitForAudioReady(4000);
         await this.audio.play();
         this.isPlaying = true;
         this.playBtn.classList.add('active');
         this.playBtn.textContent = '⏸ PAUSE';
       } catch (err) {
-        console.error('Playback error:', err);
-        this.subEl.textContent = `⚠️ Tap DECK ${this.id.toUpperCase()} in Party Crate to re-fetch track`;
+        // Ignore harmless AbortError when user clicks Play/Pause rapidly or loads a new track
+        if (err && err.name === 'AbortError') return;
+        console.warn('Playback notice:', err);
+      } finally {
+        this.playPromisePending = false;
       }
     } else {
       this.audio.pause();
