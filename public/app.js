@@ -136,9 +136,18 @@ class DJDeck {
 
   connectAudioGraph() {
     ensureAudioContext();
-    if (this.connected) return;
+    if (this.connected || !audioCtx) return;
+    // Set this.connected = true BEFORE any calls that might re-enter connectAudioGraph()!
+    this.connected = true;
 
-    this.sourceNode = audioCtx.createMediaElementSource(this.audio);
+    try {
+      if (!this.sourceNode) {
+        this.sourceNode = audioCtx.createMediaElementSource(this.audio);
+      }
+    } catch (err) {
+      console.warn(`Deck ${this.id} createMediaElementSource:`, err);
+      return;
+    }
 
     // BASS (Low-Shelf Filter @ 250 Hz)
     this.lowFilter = audioCtx.createBiquadFilter();
@@ -164,7 +173,9 @@ class DJDeck {
     this.channelGain.gain.value = 1.0;
 
     this.xfadeGain = audioCtx.createGain();
-    this.xfadeGain.gain.value = 1.0;
+    const xVal = (typeof crossfader !== 'undefined' && crossfader) ? parseFloat(crossfader.value || '0') : 0;
+    const norm = (xVal + 1) / 2;
+    this.xfadeGain.gain.value = this.id === 'a' ? Math.cos(norm * 0.5 * Math.PI) : Math.sin(norm * 0.5 * Math.PI);
 
     // Deck VU Meter Analyser
     this.analyser = audioCtx.createAnalyser();
@@ -178,13 +189,6 @@ class DJDeck {
     this.channelGain.connect(this.xfadeGain);
     this.xfadeGain.connect(this.analyser);
     this.analyser.connect(masterAnalyser);
-
-    // Initial sync of crossfader gain
-    if (typeof applyCrossfader === 'function' && crossfader) {
-      applyCrossfader(parseFloat(crossfader.value || '0'));
-    }
-
-    this.connected = true;
   }
 
   generateDefaultWaveform(seedStr = '') {
