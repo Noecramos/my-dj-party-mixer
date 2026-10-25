@@ -524,14 +524,19 @@ class DJDeck {
     this.connectAudioGraph();
     this.setDownloadProgress(null);
     if (this.currentObjectUrl) URL.revokeObjectURL(this.currentObjectUrl);
-    this.currentObjectUrl = URL.createObjectURL(blob);
+    // Ensure valid audio MIME type on Android Chrome
+    const safeBlob = (!blob.type || blob.type === 'application/octet-stream' || blob.type.includes('text'))
+      ? new Blob([blob], { type: 'audio/mp4' })
+      : blob;
+    this.currentObjectUrl = URL.createObjectURL(safeBlob);
     this.audio.src = this.currentObjectUrl;
+    this.audio.load();
     this.titleEl.textContent = title;
     this.subEl.textContent = subtitle || '100% Buffered (Zero Stutter)';
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
     this.cuePoint = 0;
     this.cueBtn.textContent = '⏺ CUE';
-    await this.extractWaveformFromBlob(blob, title);
+    await this.extractWaveformFromBlob(safeBlob, title);
   }
 
   async loadStreamUrl(url, title, subtitle) {
@@ -542,6 +547,7 @@ class DJDeck {
       this.currentObjectUrl = null;
     }
     this.audio.src = url;
+    this.audio.load();
     this.titleEl.textContent = title;
     this.subEl.textContent = subtitle || '100% Server-Buffered • Zero Cutting & Zero RAM Crash';
     this.topTitleEl.textContent = `DECK ${this.id.toUpperCase()}: ${title}`;
@@ -564,6 +570,7 @@ class DJDeck {
         this.playBtn.textContent = '⏸ PAUSE';
       } catch (err) {
         console.error('Playback error:', err);
+        this.subEl.textContent = `⚠️ Tap DECK ${this.id.toUpperCase()} in Party Crate to re-fetch track`;
       }
     } else {
       this.audio.pause();
@@ -965,14 +972,24 @@ async function refreshOfflineVaultUI() {
       </div>
     `;
     const [btnA, btnB, btnDel] = row.querySelectorAll('button');
-    btnA.addEventListener('click', async () => {
-      await deckA.loadBlob(tr.blob, tr.title, 'Offline Party Vault');
+    const loadVaultItemToDeck = async (trItem, targetDeck) => {
+      // If a previous buggy download saved a tiny (<15KB) error blob, automatically re-fetch the real audio!
+      if (!trItem.blob || trItem.blob.size < 15000) {
+        const vid = trItem.id && trItem.id.startsWith('yt-') ? trItem.id.slice(3) : null;
+        if (vid && vid.length === 11) {
+          await deleteVaultTrack(trItem.id);
+          await loadYouTubeTrackToDeck({ videoId: vid, title: trItem.title, artist: trItem.artist }, targetDeck);
+          return;
+        }
+      }
+      await targetDeck.loadBlob(trItem.blob, trItem.title, 'Offline Party Vault');
       crateModal.hidden = true;
-    });
-    btnB.addEventListener('click', async () => {
-      await deckB.loadBlob(tr.blob, tr.title, 'Offline Party Vault');
-      crateModal.hidden = true;
-    });
+      if (targetDeck.audio.paused) {
+        await targetDeck.togglePlay();
+      }
+    };
+    btnA.addEventListener('click', () => loadVaultItemToDeck(tr, deckA));
+    btnB.addEventListener('click', () => loadVaultItemToDeck(tr, deckB));
     btnDel.addEventListener('click', async () => {
       await deleteVaultTrack(tr.id);
       await refreshOfflineVaultUI();
@@ -1240,12 +1257,12 @@ ytInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') performYouTubeSearch();
 });
 
-// Initialize Demo Tracks & Offline Vault Count on Startup (auto-clean any oversized >20MB blobs that could crash Android RAM)
+// Initialize Demo Tracks & Offline Vault Count on Startup (auto-clean any corrupted <15KB or oversized >20MB blobs)
 window.addEventListener('DOMContentLoaded', async () => {
   try {
     const tracks = await getAllVaultTracks();
     for (const tr of tracks) {
-      if (tr.blob && tr.blob.size > 20 * 1024 * 1024) {
+      if (!tr.blob || tr.blob.size < 15000 || tr.blob.size > 20 * 1024 * 1024) {
         await deleteVaultTrack(tr.id);
       }
     }
