@@ -985,15 +985,222 @@ input[type="range"].styled-slider:focus-visible {
   text-align: center;
 }
 
-/* Portrait Tablet / Small Screen Responsive Fallback */
-@media (max-width: 960px) {
-  html, body {
-    overflow-y: auto;
+/* ================= 100% RESPONSIVE BREAKPOINTS (PHONES, S23 ULTRA LANDSCAPE, PORTRAIT) ================= */
+
+/* 1. Landscape Phones (like Samsung S23 Ultra in landscape: short height <= 520px, wide width)
+      Keep 3-column DJ layout side-by-side and scale everything to fit 100% in the screen! */
+@media (max-height: 520px) and (orientation: landscape) {
+  .topbar {
+    block-size: 2.3rem;
+    padding: 0.2rem 0.5rem;
+    gap: 0.35rem;
+  }
+  .brand h1 {
+    font-size: 0.8rem;
+  }
+  .badge {
+    display: none;
+  }
+  .master-bridge {
+    padding: 0.12rem 0.4rem;
+    gap: 0.35rem;
+  }
+  .deck-mini-status {
+    font-size: 0.58rem;
+    min-inline-size: 4.5rem;
+    max-inline-size: 6.5rem;
+  }
+  #master-spectrum {
+    block-size: 1.4rem;
+    max-inline-size: 8rem;
+  }
+  .btn-pill {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.62rem;
   }
   .dj-console {
-    grid-template-columns: 1fr;
+    gap: 0.35rem;
+    padding: 0.3rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+  .deck, .mixer-center {
+    padding: 0.35rem;
+    border-radius: 10px;
+    gap: 0.2rem;
+  }
+  .deck-badge {
+    inline-size: 1.45rem;
+    block-size: 1.45rem;
+    font-size: 0.8rem;
+  }
+  .track-title {
+    font-size: 0.68rem;
+  }
+  .track-sub {
+    font-size: 0.54rem;
+  }
+  .btn-upload {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.6rem;
+  }
+  .waveform-wrap {
+    block-size: 1.85rem;
+    flex-shrink: 0;
+  }
+  .turntable-row {
+    gap: 0.35rem;
+    padding-block: 0.05rem;
+  }
+  .jog-wheel {
+    inline-size: min(100%, 34vh, 7.8rem);
+    block-size: min(100%, 34vh, 7.8rem);
+    border-width: 2.5px;
+  }
+  .jog-ring {
+    inset: 0.35rem;
+  }
+  .jog-marker {
+    inset-block-start: 0.25rem;
+    inline-size: 0.35rem;
+    block-size: 0.75rem;
+  }
+  .jog-deck-label {
+    font-size: 0.48rem;
+  }
+  .jog-bpm {
+    font-size: 0.62rem;
+  }
+  .jog-reset-hint {
+    font-size: 0.38rem;
+  }
+  .pitch-column {
+    inline-size: 5.1rem;
+    padding: 0.25rem;
+    gap: 0.15rem;
+  }
+  .control-label {
+    font-size: 0.54rem;
+  }
+  .btn-transport {
+    padding: 0.32rem 0.15rem;
+    font-size: 0.58rem;
+    border-radius: 6px;
+  }
+  .mixer-title {
+    font-size: 0.56rem;
+    margin-block-end: 0.1rem;
+  }
+  .eq-columns {
+    gap: 0.25rem;
+  }
+  .eq-strip {
+    padding: 0.25rem;
+    gap: 0.12rem;
+  }
+  .strip-header {
+    font-size: 0.56rem;
+    padding-block-end: 0.1rem;
+  }
+  .eq-label-row {
+    font-size: 0.54rem;
+  }
+  .eq-db {
+    font-size: 0.52rem;
+  }
+  .btn-kill {
+    padding: 0.08rem 0.24rem;
+    font-size: 0.5rem;
+  }
+  .vu-column {
+    display: none;
+  }
+  input[type="range"].styled-slider {
+    --slider-track-size: 0.35rem;
+    --slider-thumb-size: 0.95rem;
+    block-size: 1.15rem;
+  }
+  input[type="range"].xfade-slider {
+    --slider-thumb-size: 1.1rem;
+    --slider-track-size: 0.4rem;
+  }
+  .crossfader-box {
+    margin-block-start: 0.15rem;
+    padding: 0.25rem 0.4rem;
+  }
+  .xfade-labels {
+    font-size: 0.54rem;
+    margin-block-end: 0.05rem;
+  }
+  .xfade-quick-buttons {
+    margin-block-start: 0.1rem;
+    gap: 0.2rem;
+  }
+  .btn-micro {
+    padding: 0.16rem 0.28rem;
+    font-size: 0.52rem;
+  }
+  .crate-modal {
+    inset-inline-start: 2vw;
+    inset-block-start: 3vh;
+    inline-size: 96vw;
+    block-size: 94vh;
+  }
+  .crate-header {
+    padding: 0.35rem 0.75rem;
+  }
+  .crate-header h2 {
+    font-size: 0.8rem;
+  }
+  .crate-subtitle {
+    display: none;
+  }
+  .crate-body {
+    padding: 0.45rem 0.75rem;
+    gap: 0.4rem;
+  }
+}
+
+/* 2. Portrait Phones & Portrait Tablets (Stack vertically with smooth scrolling & zero clipping) */
+@media (orientation: portrait), (max-width: 640px) {
+  html, body {
+    height: auto;
+    min-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .topbar {
+    block-size: auto;
+    flex-wrap: wrap;
+    padding: 0.5rem;
+    gap: 0.45rem;
+  }
+  .master-bridge {
+    order: 3;
+    inline-size: 100%;
+    max-inline-size: 100%;
+  }
+  .dj-console {
+    grid-template-columns: minmax(0, 1fr);
+    block-size: auto;
+    overflow: visible;
+  }
+  .deck, .mixer-center {
+    overflow: visible;
+    min-block-size: 22rem;
+    gap: 0.65rem;
+  }
+  .jog-wheel {
+    inline-size: min(13.5rem, 58vw);
+    block-size: min(13.5rem, 58vw);
+  }
+  .crate-modal {
+    inset-inline-start: 2vw;
+    inset-block-start: 2vh;
+    inline-size: 96vw;
+    block-size: 94vh;
   }
   .crate-columns {
     grid-template-columns: 1fr;
+    overflow-y: auto;
   }
 }
