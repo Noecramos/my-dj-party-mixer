@@ -605,7 +605,11 @@ class DJDeck {
   }
 
   async togglePlay() {
+    ensureAudioContext();
     this.connectAudioGraph();
+    if (audioCtx && audioCtx.state === 'suspended') {
+      try { await audioCtx.resume(); } catch (_) {}
+    }
     if (this.isDownloading) {
       this.wantAutoPlayAfterDownload = true;
       this.subEl.textContent = '⏳ Finishing 100% buffer — will auto-play immediately!';
@@ -614,19 +618,29 @@ class DJDeck {
     if (!this.audio.src) {
       await generateDemoBeats();
     }
+    // If the current audio source failed (e.g. 404 after a server restart), re-buffer automatically if we have a videoId!
+    if (this.audio.error && this.currentVideoId) {
+      await loadYouTubeTrackToDeck({ videoId: this.currentVideoId, title: this.titleEl.textContent, artist: 'YouTube', duration: 1800 }, this);
+      return;
+    }
     if (this.audio.paused) {
       if (this.playPromisePending) return;
       this.playPromisePending = true;
       try {
         await this.waitForAudioReady(4000);
+        if (audioCtx && audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
         await this.audio.play();
         this.isPlaying = true;
         this.playBtn.classList.add('active');
         this.playBtn.textContent = '⏸ PAUSE';
       } catch (err) {
-        // Ignore harmless AbortError when user clicks Play/Pause rapidly or loads a new track
         if (err && err.name === 'AbortError') return;
         console.warn('Playback notice:', err);
+        if (this.currentVideoId) {
+          await loadYouTubeTrackToDeck({ videoId: this.currentVideoId, title: this.titleEl.textContent, artist: 'YouTube', duration: 1800 }, this);
+        }
       } finally {
         this.playPromisePending = false;
       }
@@ -1030,25 +1044,34 @@ async function refreshOfflineVaultUI() {
       </div>
     `;
     const [btnA, btnB, btnDel] = row.querySelectorAll('button');
-    const loadVaultItemToDeck = async (trItem, targetDeck) => {
+    const loadVaultItemToDeck = async (trItem, targetDeck, btnEl) => {
+      ensureAudioContext();
+      targetDeck.connectAudioGraph();
       if (trItem.blob && trItem.blob.size >= 15000) {
         await targetDeck.loadBlob(trItem.blob, trItem.title, 'Offline Party Vault');
-      } else if (trItem.streamUrl) {
+        crateModal.hidden = true;
+        if (targetDeck.audio.paused) {
+          await targetDeck.togglePlay();
+        }
+        return;
+      }
+      // If it's a Cloud-Buffered Mix (no local blob), verify if the server still has the file cached;
+      // if the server container restarted, re-prepare it with 0% -> 100% progress bar so it NEVER 404s!
+      const vid = trItem.videoId || (trItem.id && trItem.id.startsWith('yt-') ? trItem.id.slice(3) : null);
+      if (vid && vid.length === 11) {
+        await loadYouTubeTrackToDeck({ videoId: vid, title: trItem.title, artist: trItem.artist, duration: 1800 }, targetDeck, btnEl);
+        return;
+      }
+      if (trItem.streamUrl) {
         await targetDeck.loadStreamUrl(trItem.streamUrl, trItem.title, 'Cloud-Buffered Mix');
-      } else {
-        const vid = trItem.videoId || (trItem.id && trItem.id.startsWith('yt-') ? trItem.id.slice(3) : null);
-        if (vid && vid.length === 11) {
-          await loadYouTubeTrackToDeck({ videoId: vid, title: trItem.title, artist: trItem.artist }, targetDeck);
-          return;
+        crateModal.hidden = true;
+        if (targetDeck.audio.paused) {
+          await targetDeck.togglePlay();
         }
       }
-      crateModal.hidden = true;
-      if (targetDeck.audio.paused) {
-        await targetDeck.togglePlay();
-      }
     };
-    btnA.addEventListener('click', () => loadVaultItemToDeck(tr, deckA));
-    btnB.addEventListener('click', () => loadVaultItemToDeck(tr, deckB));
+    btnA.addEventListener('click', () => loadVaultItemToDeck(tr, deckA, btnA));
+    btnB.addEventListener('click', () => loadVaultItemToDeck(tr, deckB, btnB));
     btnDel.addEventListener('click', async () => {
       await deleteVaultTrack(tr.id);
       await refreshOfflineVaultUI();
@@ -1213,6 +1236,7 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
     deck.connectAudioGraph();
 
     if (btnEl) btnEl.disabled = true;
+    deck.currentVideoId = item.videoId || null;
     deck.titleEl.textContent = item.title;
     deck.subEl.textContent = 'Buffering 100% on Cloud Server for zero-cut playback...';
     deck.setDownloadProgress(5, 'PREPARING 5%');

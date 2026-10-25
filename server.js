@@ -408,7 +408,7 @@ app.get('/api/youtube/prepare', async (req, res) => {
 });
 
 // 4. Serve cached audio file with full HTTP 206 Partial Content / Range support
-app.get('/api/youtube/file/:videoId', (req, res) => {
+app.get('/api/youtube/file/:videoId', async (req, res) => {
   const videoId = extractVideoId(req.params.videoId);
   if (!videoId) return res.status(400).send('Invalid ID');
   const filePath = path.join(AUDIO_CACHE_DIR, `${videoId}.m4a`);
@@ -422,6 +422,14 @@ app.get('/api/youtube/file/:videoId', (req, res) => {
   if (job && job.directUrl) {
     return res.redirect(job.directUrl);
   }
+  // If container restarted and cleared /tmp, re-resolve on the fly so /api/youtube/file/:videoId NEVER returns 404!
+  try {
+    const loader = await resolveViaLoaderTo(videoId);
+    if (loader && loader.streamUrl) {
+      downloadStreamToFile(loader.streamUrl, loader.ua, filePath, { progress: 50, totalBytes: 0 }).catch(() => {});
+      return res.redirect(loader.streamUrl);
+    }
+  } catch (_) {}
   return res.status(404).send('Audio file not ready');
 });
 
