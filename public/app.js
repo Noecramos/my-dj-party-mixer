@@ -1139,52 +1139,59 @@ async function prepareServerAudioWithProgress(videoId, onProgress) {
     }
     if (data.status === 'ready') {
       onProgress(100);
-      return data.streamUrl || `/api/youtube/file/${encodeURIComponent(videoId)}`;
+      return data.streamUrl || data.directUrl || `/api/youtube/file/${encodeURIComponent(videoId)}`;
     }
     onProgress(data.progress || 10);
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 900));
   }
 }
 
 async function loadYouTubeTrackToDeck(item, deck, btnEl) {
   const origBtnText = btnEl ? btnEl.textContent : '';
   try {
+    // Unlock AudioContext immediately inside the user's tap gesture so Android Chrome permits auto-play when download finishes!
+    ensureAudioContext();
+    deck.connectAudioGraph();
+
     if (btnEl) btnEl.disabled = true;
     deck.titleEl.textContent = item.title;
     deck.subEl.textContent = 'Buffering 100% on Cloud Server for zero-cut playback...';
-    deck.setDownloadProgress(3, 'PREPARING 3%');
-    setYtStatus(`Buffering "${item.title}" for Deck ${deck.id.toUpperCase()} (0%)...`);
+    deck.setDownloadProgress(5, 'PREPARING 5%');
+    setYtStatus(`Buffering "${item.title}" for Deck ${deck.id.toUpperCase()} (5%)...`);
 
     const isLongSet = (item.duration && item.duration > 600); // > 10 minutes
 
     if (item.videoId) {
       const serverFileUrl = await prepareServerAudioWithProgress(item.videoId, (pct) => {
-        deck.setDownloadProgress(pct, `BUFFERING ${pct}%`);
+        deck.setDownloadProgress(pct, `DOWNLOADING ${pct}%`);
         if (btnEl) btnEl.textContent = `⏳ ${pct}%`;
-        setYtStatus(`Buffering "${item.title}" to 100% before playing: ${pct}%`);
+        setYtStatus(`Downloading "${item.title}" to 100% before playing: ${pct}%`);
       });
 
-      // If it's a normal song (< 10 mins), we can also safely store it in Tablet Offline Vault!
-      // If it's a huge 1-hour DJ set (> 10 mins), stream from our fast server disk cache so Tablet RAM never crashes!
       if (!isLongSet) {
         try {
           const resp = await fetch(serverFileUrl);
           if (resp.ok) {
-            const blob = await resp.blob();
-            await saveTrackToVault({
-              id: `yt-${item.videoId}`,
-              title: item.title,
-              artist: `${item.artist} (100% Offline Ready)`,
-              blob,
-              addedAt: Date.now()
-            });
-            await refreshOfflineVaultUI();
-            await deck.loadBlob(blob, item.title, `100% Offline Ready • ${item.artist}`);
+            const rawBlob = await resp.blob();
+            if (rawBlob.size > 25000) {
+              const blob = new Blob([rawBlob], { type: 'audio/mp4' });
+              await saveTrackToVault({
+                id: `yt-${item.videoId}`,
+                title: item.title,
+                artist: `${item.artist} (100% Offline Ready)`,
+                blob,
+                addedAt: Date.now()
+              });
+              await refreshOfflineVaultUI();
+              await deck.loadBlob(blob, item.title, `100% Offline Ready • ${item.artist}`);
+            } else {
+              await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered • ${item.artist}`);
+            }
           } else {
-            await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered Set • ${item.artist}`);
+            await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered • ${item.artist}`);
           }
         } catch (_) {
-          await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered Set • ${item.artist}`);
+          await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered • ${item.artist}`);
         }
       } else {
         await deck.loadStreamUrl(serverFileUrl, item.title, `100% Buffered Long DJ Set • ${item.artist}`);
@@ -1194,12 +1201,16 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
       await deck.loadStreamUrl(proxyUrl, item.title, `YouTube • ${item.artist}`);
     }
 
-    setYtStatus(`✅ 100% Ready "${item.title}" on Deck ${deck.id.toUpperCase()}! Zero cutting & RAM protected.`);
+    setYtStatus(`✅ 100% Ready "${item.title}" on Deck ${deck.id.toUpperCase()}! Playing now.`);
     if (btnEl) {
       btnEl.textContent = '✅ 100%';
       btnEl.disabled = false;
     }
-    setTimeout(() => { crateModal.hidden = true; }, 400);
+    crateModal.hidden = true;
+    // Automatically start playback on the deck once loaded!
+    if (deck.audio.paused) {
+      await deck.togglePlay();
+    }
   } catch (err) {
     deck.setDownloadProgress(null);
     if (btnEl) {

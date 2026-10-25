@@ -3,7 +3,6 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
 const https = require('https');
 const http = require('http');
 
@@ -76,7 +75,50 @@ function extractVideoId(input) {
   return regexMatch ? regexMatch[1] : null;
 }
 
-// Primary: Direct YouTube InnerTube iOS Player API (Bypasses LOGIN_REQUIRED & returns direct m4a audio stream)
+// Primary Residential-Network Resolver: Loader.to / SaveNow API (Works 100% from Cloud Datacenter IPs & returns CORS-enabled audio/mp4!)
+async function resolveViaLoaderTo(videoId, onProgress) {
+  const startUrl = `https://loader.to/ajax/download.php?format=m4a&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
+  const startRes = await fetch(startUrl, {
+    headers: { 'User-Agent': WEB_UA },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!startRes.ok) throw new Error(`Loader init HTTP ${startRes.status}`);
+  const startData = await startRes.json();
+  if (!startData || !startData.id) throw new Error('Could not initialize cloud audio conversion');
+
+  const jobId = startData.id;
+  const title = startData.title || `YouTube Track (${videoId})`;
+
+  for (let attempt = 0; attempt < 45; attempt++) {
+    await new Promise(r => setTimeout(r, 1200));
+    const progRes = await fetch(`https://loader.to/ajax/progress.php?id=${encodeURIComponent(jobId)}`, {
+      headers: { 'User-Agent': WEB_UA },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!progRes.ok) continue;
+    const progData = await progRes.json();
+    // loader.to reports progress from 0 to 1000
+    const rawPct = typeof progData.progress === 'number' ? Math.round(progData.progress / 10) : 15;
+    if (onProgress) onProgress(Math.min(95, Math.max(8, rawPct)));
+
+    if (progData.download_url) {
+      return {
+        videoId,
+        title,
+        artist: 'YouTube Audio',
+        streamUrl: progData.download_url,
+        mimeType: 'audio/mp4',
+        ua: WEB_UA
+      };
+    }
+    if (progData.success === 0 && progData.text && progData.text.toLowerCase().includes('error')) {
+      throw new Error(progData.text);
+    }
+  }
+  throw new Error('Audio conversion timed out');
+}
+
+// Secondary Direct InnerTube iOS Player API (Works instantly on local/residential IPs)
 async function resolveViaInnerTube(videoId) {
   const clients = [
     { name: 'IOS', version: '20.03.02', ua: IOS_UA, deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.2.1.22C161' },
@@ -109,7 +151,7 @@ async function resolveViaInnerTube(videoId) {
           contentCheckOk: true,
           racyCheckOk: true
         }),
-        signal: AbortSignal.timeout(7000)
+        signal: AbortSignal.timeout(6000)
       });
       if (!res.ok) continue;
       const data = await res.json();
@@ -117,7 +159,6 @@ async function resolveViaInnerTube(videoId) {
       const audioStreams = formats
         .filter(f => f.mimeType && f.mimeType.startsWith('audio/') && f.url)
         .sort((a, b) => {
-          // Prefer audio/mp4 (m4a) for universal Android/iOS/Desktop support
           const aMp4 = a.mimeType.includes('mp4') ? 1 : 0;
           const bMp4 = b.mimeType.includes('mp4') ? 1 : 0;
           if (aMp4 !== bMp4) return bMp4 - aMp4;
@@ -152,7 +193,7 @@ const PIPED_INSTANCES = [
   'https://pipedapi-libre.kavin.rocks'
 ];
 
-// Direct YouTube InnerTube Search (Fastest, zero Piped downtime!)
+// Direct YouTube InnerTube Search
 async function searchViaInnerTube(query) {
   try {
     const res = await fetch('https://www.youtube.com/youtubei/v1/search?prettyPrint=false', {
@@ -204,13 +245,11 @@ app.get('/api/youtube/search', async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: 'Missing query parameter q' });
 
-  // Try direct YouTube InnerTube search first
   const innerResults = await searchViaInnerTube(q);
   if (innerResults && innerResults.length > 0) {
     return res.json({ source: 'youtube-direct', items: innerResults });
   }
 
-  // Fallback to Piped instances
   for (const instance of PIPED_INSTANCES) {
     try {
       const data = await fetchJson(`${instance}/search?q=${encodeURIComponent(q)}&filter=videos`);
@@ -246,25 +285,10 @@ app.get('/api/youtube/info', async (req, res) => {
   const info = await resolveViaInnerTube(videoId);
   if (info) return res.json(info);
 
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const data = await fetchJson(`${instance}/streams/${videoId}`);
-      if (data && Array.isArray(data.audioStreams) && data.audioStreams.length > 0) {
-        const sorted = data.audioStreams.filter(s => s.url).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-        if (sorted.length > 0) {
-          return res.json({
-            videoId,
-            title: data.title || `YouTube Track (${videoId})`,
-            artist: data.uploader || 'YouTube',
-            duration: data.duration || 0,
-            thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            streamUrl: sorted[0].url,
-            mimeType: sorted[0].mimeType || 'audio/mp4'
-          });
-        }
-      }
-    } catch (_) {}
-  }
+  try {
+    const loaderInfo = await resolveViaLoaderTo(videoId);
+    if (loaderInfo) return res.json(loaderInfo);
+  } catch (_) {}
 
   return res.status(502).json({ error: 'Stream extraction unavailable for this video.' });
 });
@@ -274,13 +298,13 @@ const downloadJobs = new Map();
 
 async function downloadStreamToFile(streamUrl, ua, filePath, job) {
   const resp = await fetch(streamUrl, {
-    headers: { 'User-Agent': ua || IOS_UA }
+    headers: { 'User-Agent': ua || WEB_UA }
   });
   if (!resp.ok || !resp.body) {
     throw new Error(`Upstream HTTP ${resp.status}`);
   }
   const totalBytes = parseInt(resp.headers.get('content-length') || '0', 10) || job.totalBytes || 0;
-  const tmpPath = filePath + '.part';
+  const tmpPath = filePath + `.${Date.now()}.part`;
   const fileStream = fs.createWriteStream(tmpPath);
   const reader = resp.body.getReader();
   let received = 0;
@@ -291,9 +315,9 @@ async function downloadStreamToFile(streamUrl, ua, filePath, job) {
     fileStream.write(Buffer.from(value));
     received += value.length;
     if (totalBytes > 0) {
-      job.progress = Math.min(99, Math.max(5, Math.round((received / totalBytes) * 100)));
+      job.progress = Math.min(99, Math.max(job.progress, Math.round((received / totalBytes) * 100)));
     } else {
-      job.progress = Math.min(95, Math.round((received / (4 * 1024 * 1024)) * 100));
+      job.progress = Math.min(98, Math.max(job.progress, Math.round((received / (4 * 1024 * 1024)) * 100)));
     }
   }
 
@@ -303,7 +327,8 @@ async function downloadStreamToFile(streamUrl, ua, filePath, job) {
     fileStream.on('error', reject);
   });
 
-  if (received < 10000) {
+  if (received < 25000) {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
     throw new Error('Downloaded audio file was empty or incomplete');
   }
   fs.renameSync(tmpPath, filePath);
@@ -317,63 +342,61 @@ app.get('/api/youtube/prepare', async (req, res) => {
 
   const filePath = path.join(AUDIO_CACHE_DIR, `${videoId}.m4a`);
   if (fs.existsSync(filePath) && fs.statSync(filePath).size > 25000) {
-    downloadJobs.set(videoId, { status: 'ready', progress: 100, filePath });
-    return res.json({ status: 'ready', progress: 100, streamUrl: `/api/youtube/file/${videoId}` });
+    const existingReady = downloadJobs.get(videoId);
+    return res.json({
+      status: 'ready',
+      progress: 100,
+      streamUrl: `/api/youtube/file/${videoId}`,
+      directUrl: existingReady?.directUrl || null
+    });
   }
 
   const existing = downloadJobs.get(videoId);
   if (existing && existing.status === 'downloading') {
     return res.json({ status: 'downloading', progress: existing.progress || 8 });
   }
+  if (existing && existing.status === 'error') {
+    const errMsg = existing.error;
+    downloadJobs.delete(videoId);
+    return res.status(502).json({ status: 'error', error: errMsg || 'Conversion failed' });
+  }
 
-  const job = { status: 'downloading', progress: 5, filePath, error: null, totalBytes: 0 };
+  const job = { status: 'downloading', progress: 6, filePath, error: null, totalBytes: 0, directUrl: null };
   downloadJobs.set(videoId, job);
 
-  // Start async background download via InnerTube iOS stream
   (async () => {
     try {
-      const info = await resolveViaInnerTube(videoId);
-      if (info && info.streamUrl) {
-        job.totalBytes = info.contentLength || 0;
-        job.progress = 12;
-        await downloadStreamToFile(info.streamUrl, info.ua, filePath, job);
+      // 1st Try: InnerTube direct stream (fastest when on residential IP)
+      const inner = await resolveViaInnerTube(videoId);
+      if (inner && inner.streamUrl) {
+        job.totalBytes = inner.contentLength || 0;
+        job.progress = 15;
+        await downloadStreamToFile(inner.streamUrl, inner.ua, filePath, job);
         return;
       }
-      throw new Error('Could not resolve direct audio stream for this video');
-    } catch (err) {
-      // Fallback to yt-dlp with iOS player client if available
-      const proc = spawn('yt-dlp', [
-        '--extractor-args', 'youtube:player_client=ios,web',
-        '-f', 'bestaudio[ext=m4a]/bestaudio',
-        '--no-playlist',
-        '--newline',
-        '-o', filePath,
-        `https://www.youtube.com/watch?v=${videoId}`
-      ]);
-      let handled = false;
-      proc.stdout.on('data', (chunk) => {
-        const m = chunk.toString().match(/(\d+(?:\.\d+)?)%/);
-        if (m) job.progress = Math.min(99, Math.max(job.progress, Math.round(parseFloat(m[1]))));
+
+      // 2nd Try: Loader.to / SaveNow cloud converter (works 100% on Railway Cloud Datacenter IPs!)
+      const loader = await resolveViaLoaderTo(videoId, (pct) => {
+        job.progress = Math.min(85, pct);
       });
-      proc.on('close', (code) => {
-        if (handled) return;
-        handled = true;
-        if (code === 0 && fs.existsSync(filePath) && fs.statSync(filePath).size > 25000) {
+      if (loader && loader.streamUrl) {
+        job.directUrl = loader.streamUrl;
+        job.progress = 88;
+        try {
+          await downloadStreamToFile(loader.streamUrl, loader.ua, filePath, job);
+          return;
+        } catch (_) {
+          // Even if server disk write fails, loader.streamUrl has `Access-Control-Allow-Origin: *` so client can stream/download directly!
           job.status = 'ready';
           job.progress = 100;
-        } else {
-          job.status = 'error';
-          job.error = err.message || 'Unable to extract audio for this track';
-          downloadJobs.delete(videoId);
+          return;
         }
-      });
-      proc.on('error', () => {
-        if (handled) return;
-        handled = true;
-        job.status = 'error';
-        job.error = err.message || 'Unable to extract audio for this track';
-        downloadJobs.delete(videoId);
-      });
+      }
+
+      throw new Error('Could not extract audio stream for this track');
+    } catch (err) {
+      job.status = 'error';
+      job.error = err.message || 'Unable to extract audio for this track';
     }
   })();
 
@@ -385,28 +408,31 @@ app.get('/api/youtube/file/:videoId', (req, res) => {
   const videoId = extractVideoId(req.params.videoId);
   if (!videoId) return res.status(400).send('Invalid ID');
   const filePath = path.join(AUDIO_CACHE_DIR, `${videoId}.m4a`);
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).size < 25000) {
-    return res.status(404).send('Audio file not ready');
+  if (fs.existsSync(filePath) && fs.statSync(filePath).size > 25000) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', 'audio/mp4');
+    return res.sendFile(filePath);
   }
-
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Accept-Ranges', 'bytes');
-  res.setHeader('Content-Type', 'audio/mp4');
-  res.sendFile(filePath);
+  const job = downloadJobs.get(videoId);
+  if (job && job.directUrl) {
+    return res.redirect(job.directUrl);
+  }
+  return res.status(404).send('Audio file not ready');
 });
 
-// 5. Direct Proxy with iOS User-Agent & Range support
+// 5. Direct Proxy with Range support
 app.get('/api/youtube/proxy', async (req, res) => {
   try {
     let targetUrl = req.query.url;
-    let ua = IOS_UA;
+    let ua = WEB_UA;
     const videoId = extractVideoId(req.query.v);
 
     if (!targetUrl && videoId) {
-      const info = await resolveViaInnerTube(videoId);
+      const info = await resolveViaInnerTube(videoId) || await resolveViaLoaderTo(videoId);
       if (info && info.streamUrl) {
         targetUrl = info.streamUrl;
-        ua = info.ua || IOS_UA;
+        ua = info.ua || WEB_UA;
       }
     }
     if (!targetUrl) return res.status(400).send('Missing stream URL');

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'my-dj-pwa-v6';
+const CACHE_NAME = 'my-dj-pwa-v7';
 const ASSETS = [
   '/',
   '/index.html',
