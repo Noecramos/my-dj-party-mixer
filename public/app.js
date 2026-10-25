@@ -522,6 +522,12 @@ class DJDeck {
       this.playBtn.textContent = '▶ PLAY';
     });
 
+    this.audio.addEventListener('error', (e) => {
+      console.error(`Deck ${this.id.toUpperCase()} audio element error:`, this.audio.error);
+      const code = this.audio.error ? this.audio.error.code : 'unknown';
+      this.subEl.textContent = `⚠️ Audio decode error (code ${code}). Tap to retry.`;
+    });
+
     this.audio.addEventListener('ended', () => {
       this.isPlaying = false;
       this.playBtn.classList.remove('active');
@@ -1242,6 +1248,9 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
   try {
     // Unlock AudioContext immediately inside the user's tap gesture so Android Chrome permits auto-play when download finishes!
     ensureAudioContext();
+    if (audioCtx && audioCtx.state === 'suspended') {
+      try { await audioCtx.resume(); } catch (_) {}
+    }
     deck.connectAudioGraph();
 
     if (btnEl) btnEl.disabled = true;
@@ -1299,7 +1308,8 @@ async function loadYouTubeTrackToDeck(item, deck, btnEl) {
       btnEl.disabled = false;
     }
     crateModal.hidden = true;
-    // Automatically start playback on the deck once loaded!
+    
+    // Explicitly un-pause or trigger play now that stream/blob is loaded
     if (deck.audio.paused) {
       await deck.togglePlay();
     }
