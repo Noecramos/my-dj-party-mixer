@@ -1,0 +1,14 @@
+{
+  "name": "my-dj-party-mixer",
+  "version": "1.0.0",
+  "description": "Standalone Android Tablet PWA DJ Mixer with 3-Band EQ (Bass, Mid, Treble), Dual Decks, Offline Party Crate, and YouTube Cloud Loader",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1"
+  }
+}

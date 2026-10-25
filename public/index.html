@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0b0d14" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>MY DJ — Standalone Tablet Party Mixer</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- TOP HEADER BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <h1>MY DJ <span class="badge">PARTY PRO</span></h1>
+    </div>
+
+    <!-- CENTRAL DUAL WAVEFORM / SPECTRUM MONITOR -->
+    <div class="master-bridge">
+      <div class="deck-mini-status deck-a-color">
+        <span id="top-title-a">DECK A: Ready</span>
+        <span id="top-time-a" class="mono">00:00 / 00:00</span>
+      </div>
+      <canvas id="master-spectrum" width="320" height="38" aria-label="Real-time frequency spectrum analyzer"></canvas>
+      <div class="deck-mini-status deck-b-color">
+        <span id="top-title-b">DECK B: Ready</span>
+        <span id="top-time-b" class="mono">00:00 / 00:00</span>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <button id="btn-autodj" class="btn-pill" type="button" title="Continuous Party Mix (Auto-crossfades when a song is about to end)">
+        🔁 Auto-Mix: <strong id="autodj-state">OFF</strong>
+      </button>
+      <button id="btn-demo-tracks" class="btn-pill btn-accent" type="button" title="Generate instant club tracks to test Bass, Mid & Treble right now">
+        ⚡ Load Demo Beats
+      </button>
+      <button id="btn-open-crate" class="btn-pill btn-yt" type="button">
+        🎵 YouTube &amp; Party Crate
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN DJ CONSOLE -->
+  <main class="dj-console">
+    <!-- ==================== DECK A ==================== -->
+    <section class="deck deck-a" aria-label="Deck A">
+      <div class="deck-header">
+        <div class="deck-badge">A</div>
+        <div class="track-meta">
+          <div id="title-a" class="track-title">Load a track or tap Demo Beats</div>
+          <div id="sub-a" class="track-sub">3-Band EQ Ready • Offline Party Capable</div>
+        </div>
+        <label class="btn-upload" for="file-a" title="Load audio file from Tablet storage">
+          📂 File
+          <input type="file" id="file-a" accept="audio/*,video/mp4,video/webm" hidden />
+        </label>
+      </div>
+
+      <!-- Interactive Waveform Scrubber -->
+      <div class="waveform-wrap" id="wave-wrap-a">
+        <canvas id="wave-a" width="420" height="54"></canvas>
+        <div class="playhead" id="playhead-a"></div>
+      </div>
+
+      <!-- Jog Wheel + Pitch/Tempo Slider -->
+      <div class="turntable-row">
+        <div class="jog-container">
+          <div class="jog-wheel" id="jog-a" tabindex="0" aria-label="Deck A Jog Wheel - Drag to scratch or nudge beat">
+            <div class="jog-ring"></div>
+            <div class="jog-marker"></div>
+            <div class="jog-center">
+              <span class="jog-deck-label">DECK A</span>
+              <span id="bpm-a" class="jog-bpm">100.0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pitch-column">
+          <label for="pitch-a" class="control-label">TEMPO <span id="pitch-val-a" class="mono">0%</span></label>
+          <input type="range" id="pitch-a" class="styled-slider pitch-slider" min="0.8" max="1.2" step="0.005" value="1" aria-label="Deck A Tempo Speed" />
+          <button type="button" class="btn-micro" id="pitch-reset-a">RESET 100%</button>
+        </div>
+      </div>
+
+      <!-- Transport & Hot Cues -->
+      <div class="transport-row">
+        <button type="button" id="play-a" class="btn-transport btn-play">▶ PLAY</button>
+        <button type="button" id="cue-a" class="btn-transport btn-cue">⏺ CUE</button>
+        <button type="button" id="loop-a" class="btn-transport btn-loop">🔁 4-BEAT</button>
+        <button type="button" id="bassdrop-a" class="btn-transport btn-fx">💥 BASS DROP</button>
+      </div>
+    </section>
+
+    <!-- ==================== CENTER 3-BAND EQ MIXER ==================== -->
+    <section class="mixer-center" aria-label="Central 3-Band EQ and Crossfader Mixer">
+      <div class="mixer-title">3-BAND EQ &amp; ISOLATOR MIXER</div>
+
+      <div class="eq-columns">
+        <!-- DECK A EQ STRIP -->
+        <div class="eq-strip eq-strip-a">
+          <div class="strip-header">CH A EQ</div>
+
+          <!-- TREBLE (HIGH) -->
+          <div class="eq-band">
+            <div class="eq-label-row">
+              <label for="eq-high-a">TREBLE</label>
+              <span id="val-high-a" class="mono eq-db">0 dB</span>
+              <button type="button" id="kill-high-a" class="btn-kill" title="Kill Deck A Treble">KILL</button>
+            </div>
+            <input type="range" id="eq-high-a" class="styled-slider eq-slider-a" min="-24" max="15" step="0.5" value="0" />
+          </div>
+
+          <!-- MID -->
+          <div class="eq-band">
+            <div class="eq-label-row">
+              <label for="eq-mid-a">MIDS</label>
+              <span id="val-mid-a" class="mono eq-db">0 dB</span>
+              <button type="button" id="kill-mid-a" class="btn-kill" title="Kill Deck A Mids">KILL</button>
+            </div>
+            <input type="range" id="eq-mid-a" class="styled-slider eq-slider-a" min="-24" max="15" step="0.5" value="0" />
+          </div>
+
+          <!-- BASS (LOW) -->
+          <div class="eq-band">
+            <div class="eq-label-row">
+              <label for="eq-low-a">BASS</label>
+              <span id="val-low-a" class="mono eq-db">0 dB</span>
+              <button type="button" id="kill-low-a" class="btn-kill" title="Kill Deck A Bass">KILL</button>
+            </div>
+            <input type="range" id="eq-low-a" class="styled-slider eq-slider-a" min="-24" max="15" step="0.5" value="0" />
+          </div>
+
+          <!-- CHANNEL A VOLUME -->
+          <div class="eq-band vol-band">
+            <div class="eq-label-row">
+              <label for="vol-a">VOL A</label>
+              <span id="val-vol-a" class="mono eq-db">100%</span>
+              <button type="button" id="eq-reset-a" class="btn-kill btn-flat" title="Reset Deck A EQ to 0dB">FLAT</button>
+            </div>
+            <input type="range" id="vol-a" class="styled-slider eq-slider-a" min="0" max="1.2" step="0.01" value="1" />
+          </div>
+        </div>
+
+        <!-- CENTER VU METERS -->
+        <div class="vu-column">
+          <canvas id="vu-a" width="16" height="190" aria-label="Deck A level meter"></canvas>
+          <canvas id="vu-b" width="16" height="190" aria-label="Deck B level meter"></canvas>
+        </div>
+
+        <!-- DECK B EQ STRIP -->
+        <div class="eq-strip eq-strip-b">
+          <div class="strip-header">CH B EQ</div>
+
+          <!-- TREBLE (HIGH) -->
+          <div class="eq-band">
+            <div class="eq-label-row">
+              <label for="eq-high-b">TREBLE</label>
+              <span id="val-high-b" class="mono eq-db">0 dB</span>
+              <button type="button" id="kill-high-b" class="btn-kill" title="Kill Deck B Treble">KILL</button>
+            </div>
+            <input type="range" id="eq-high-b" class="styled-slider eq-slider-b" min="-24" max="15" step="0.5" value="0" />
+          </div>
+
+          <!-- MID -->
+          <div class="eq-band">
+            <div class="eq-label-row">
+              <label for="eq-mid-b">MIDS</label>
+              <span id="val-mid-b" class="mono eq-db">0 dB</span>
+              <button type="button" id="kill-mid-b" class="btn-kill" title="Kill Deck B Mids">KILL</button>
+            </div>
+            <input type="range" id="eq-mid-b" class="styled-slider eq-slider-b" min="-24" max="15" step="0.5" value="0" />
+          </div>
+
+          <!-- BASS (LOW) -->
+          <div class="eq-band">
+            <div class="eq-label-row">
+              <label for="eq-low-b">BASS</label>
+              <span id="val-low-b" class="mono eq-db">0 dB</span>
+              <button type="button" id="kill-low-b" class="btn-kill" title="Kill Deck B Bass">KILL</button>
+            </div>
+            <input type="range" id="eq-low-b" class="styled-slider eq-slider-b" min="-24" max="15" step="0.5" value="0" />
+          </div>
+
+          <!-- CHANNEL B VOLUME -->
+          <div class="eq-band vol-band">
+            <div class="eq-label-row">
+              <label for="vol-b">VOL B</label>
+              <span id="val-vol-b" class="mono eq-db">100%</span>
+              <button type="button" id="eq-reset-b" class="btn-kill btn-flat" title="Reset Deck B EQ to 0dB">FLAT</button>
+            </div>
+            <input type="range" id="vol-b" class="styled-slider eq-slider-b" min="0" max="1.2" step="0.01" value="1" />
+          </div>
+        </div>
+      </div>
+
+      <!-- MASTER CROSSFADER -->
+      <div class="crossfader-box">
+        <div class="xfade-labels">
+          <span class="deck-a-color">&lt; DECK A</span>
+          <label for="crossfader" id="xfade-label">CROSSFADER (CENTER)</label>
+          <span class="deck-b-color">DECK B &gt;</span>
+        </div>
+        <input type="range" id="crossfader" class="styled-slider xfade-slider" min="-1" max="1" step="0.01" value="0" aria-label="Master Crossfader between Deck A and Deck B" />
+        <div class="xfade-quick-buttons">
+          <button type="button" id="xfade-to-a" class="btn-micro">⬅ CUT A</button>
+          <button type="button" id="xfade-center" class="btn-micro">CENTER</button>
+          <button type="button" id="xfade-auto-swap" class="btn-micro btn-accent">🌊 SMOOTH TRANSITION (6s)</button>
+          <button type="button" id="xfade-to-b" class="btn-micro">CUT B ➡</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== DECK B ==================== -->
+    <section class="deck deck-b" aria-label="Deck B">
+      <div class="deck-header">
+        <div class="deck-badge badge-b">B</div>
+        <div class="track-meta">
+          <div id="title-b" class="track-title">Load a track or tap Demo Beats</div>
+          <div id="sub-b" class="track-sub">3-Band EQ Ready • Offline Party Capable</div>
+        </div>
+        <label class="btn-upload" for="file-b" title="Load audio file from Tablet storage">
+          📂 File
+          <input type="file" id="file-b" accept="audio/*,video/mp4,video/webm" hidden />
+        </label>
+      </div>
+
+      <!-- Interactive Waveform Scrubber -->
+      <div class="waveform-wrap" id="wave-wrap-b">
+        <canvas id="wave-b" width="420" height="54"></canvas>
+        <div class="playhead" id="playhead-b"></div>
+      </div>
+
+      <!-- Jog Wheel + Pitch/Tempo Slider -->
+      <div class="turntable-row">
+        <div class="jog-container">
+          <div class="jog-wheel jog-b" id="jog-b" tabindex="0" aria-label="Deck B Jog Wheel - Drag to scratch or nudge beat">
+            <div class="jog-ring"></div>
+            <div class="jog-marker"></div>
+            <div class="jog-center">
+              <span class="jog-deck-label">DECK B</span>
+              <span id="bpm-b" class="jog-bpm">100.0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pitch-column">
+          <label for="pitch-b" class="control-label">TEMPO <span id="pitch-val-b" class="mono">0%</span></label>
+          <input type="range" id="pitch-b" class="styled-slider pitch-slider" min="0.8" max="1.2" step="0.005" value="1" aria-label="Deck B Tempo Speed" />
+          <button type="button" class="btn-micro" id="pitch-reset-b">RESET 100%</button>
+        </div>
+      </div>
+
+      <!-- Transport & Hot Cues -->
+      <div class="transport-row">
+        <button type="button" id="play-b" class="btn-transport btn-play">▶ PLAY</button>
+        <button type="button" id="cue-b" class="btn-transport btn-cue">⏺ CUE</button>
+        <button type="button" id="loop-b" class="btn-transport btn-loop">🔁 4-BEAT</button>
+        <button type="button" id="bassdrop-b" class="btn-transport btn-fx">💥 BASS DROP</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== YOUTUBE & OFFLINE PARTY CRATE DRAWER ==================== -->
+  <aside id="crate-panel" class="crate-modal" hidden>
+    <div class="crate-header" id="crate-drag-handle" tabindex="0" aria-label="Party Crate header - use arrow keys or drag to move">
+      <div>
+        <h2>🎵 YouTube Search &amp; Offline Tablet Party Crate</h2>
+        <p class="crate-subtitle">Search YouTube, paste any YouTube URL, or save tracks into your Tablet's Offline Party Vault so you never need your PC or Wi-Fi at a party!</p>
+      </div>
+      <button type="button" id="btn-close-crate" class="btn-close" aria-label="Close Party Crate">✕</button>
+    </div>
+
+    <div class="crate-body">
+      <!-- Search / URL / Batch File Row -->
+      <div class="yt-search-bar">
+        <input type="text" id="yt-input" placeholder="Search YouTube songs (e.g. 'Daft Punk One More Time') or paste a YouTube link..." />
+        <button type="button" id="btn-yt-search" class="btn-pill btn-yt">🔍 Search / Fetch YouTube</button>
+        <label class="btn-pill btn-accent" for="crate-multi-files" style="cursor:pointer;">
+          📥 Import Tablet MP3s to Offline Vault
+          <input type="file" id="crate-multi-files" accept="audio/*,video/mp4,video/webm" multiple hidden />
+        </label>
+      </div>
+
+      <div id="yt-status" class="status-banner" hidden></div>
+
+      <div class="crate-columns">
+        <!-- Left: YouTube Search Results -->
+        <div class="crate-col">
+          <h3>🌐 YouTube Results <span class="hint">(Full Bass/Mid/Treble EQ + Save Offline)</span></h3>
+          <div id="yt-results-list" class="track-list">
+            <div class="empty-hint">Type an artist, song name, or paste a YouTube URL above and tap Search!</div>
+          </div>
+        </div>
+
+        <!-- Right: Offline Party Crate (IndexedDB) + Continuous Auto-DJ Queue -->
+        <div class="crate-col">
+          <div class="crate-col-header">
+            <h3>📦 Tablet Offline Party Vault &amp; Auto-Mix Queue <span id="crate-count" class="badge">0</span></h3>
+          </div>
+          <div id="offline-crate-list" class="track-list">
+            <div class="empty-hint">Tracks you import from your tablet or save from YouTube stay stored inside your tablet browser for 100% PC-free, offline party mixing!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <script src="/app.js"></script>
+</body>
+</html>
